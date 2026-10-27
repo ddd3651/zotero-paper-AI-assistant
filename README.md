@@ -37,8 +37,8 @@ py -3 scripts/build.py
 下载源码后，在项目文件夹中打开终端，运行`npm run build`。也可以用下面的命令下载并打包。
 
 ```sh
-git clone https://github.com/ddd3651/zotero-paper-chat-clean.git
-cd zotero-paper-chat-clean
+git clone https://github.com/ddd3651/zotero-paper-AI-assistant.git
+cd zotero-paper-AI-assistant
 npm run build
 ```
 
