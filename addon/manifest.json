@@ -1,0 +1,15 @@
+{
+  "manifest_version": 2,
+  "name": "__UI_NAME__",
+  "version": "0.5.2",
+  "description": "__UI_DESCRIPTION__",
+  "author": "Zotero Paper Chat",
+  "applications": {
+    "zotero": {
+      "id": "paper-chat@zotero-paper-chat.local",
+      "update_url": "https://updates.invalid/zotero-paper-chat/updates.json",
+      "strict_min_version": "10.0",
+      "strict_max_version": "10.0.*"
+    }
+  }
+}
