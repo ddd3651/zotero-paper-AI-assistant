@@ -61,6 +61,31 @@ async function run(root) {
         && [.2, .5, .8].every(fraction => handle.ownerDocument.elementFromPoint(
           rect.x + rect.width / 2, rect.y + rect.height * fraction) === handle);
     });
+    await check('DOM drag fallback tracks repeated moves through capture loss and relayout without snapback', async () => {
+      const doc = panel.ownerDocument, win = doc.defaultView, handle = panel.querySelector('.pc-resize-panel');
+      const rect = handle.getBoundingClientRect(), before = panel.getBoundingClientRect().width;
+      const font = win.getComputedStyle(panel).fontSize, zoom = win.getComputedStyle(panel).zoom;
+      const start = rect.x + rect.width / 2, sign = Number(win.getComputedStyle(panel).order) < 0 ? 1 : -1;
+      const fire = (target, type, x) => target.dispatchEvent(new win.PointerEvent(type, {
+        bubbles: true, cancelable: true, pointerId: 987654, pointerType: 'mouse', isPrimary: true,
+        button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: rect.y + rect.height / 2,
+      }));
+      // Synthetic pointer capture is unavailable: this deliberately exercises the document fallback.
+      fire(handle, 'pointerdown', start);
+      let tracked = !!doc.querySelector('.pc-resize-overlay');
+      try {
+        for (const step of [...Array.from({ length: 20 }, (_, i) => i + 1), ...Array.from({ length: 20 }, (_, i) => 19 - i)]) {
+          fire(doc, 'pointermove', start + sign * step * 2);
+          if (step === 5) fire(handle, 'lostpointercapture', start + sign * step * 2);
+          if (step === 10) win.dispatchEvent(new win.Event('resize'));
+          await Zotero.Promise.delay(15);
+          tracked &&= Math.abs(panel.getBoundingClientRect().width - before - step * 2) < 1.5;
+        }
+      } finally { fire(doc, 'pointerup', start); }
+      return tracked && !doc.querySelector('.pc-resize-overlay')
+        && Math.abs(panel.getBoundingClientRect().width - before) < 1.5
+        && font === win.getComputedStyle(panel).fontSize && zoom === win.getComputedStyle(panel).zoom;
+    });
     reader.close();
     await check('Reader closes without leaving a live PDF tab', () => !Zotero.Reader._readers.includes(reader));
     reader = await Zotero.Reader.open(item.id);

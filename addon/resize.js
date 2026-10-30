@@ -17,7 +17,7 @@ var PaperChatResize = (() => {
     const style = doc.createElementNS('http://www.w3.org/1999/xhtml', 'style');
     // Zotero's global button max-height otherwise caps this full-height edge at 25px.
     style.textContent = `.paper-chat-panel > .pc-resize-panel {
-      position:absolute!important;top:0!important;bottom:0!important;width:8px!important;
+      position:absolute!important;top:0!important;bottom:0!important;width:16px!important;
       height:100%!important;max-height:none!important;max-width:none!important;
       min-width:0!important;min-height:0!important;margin:0!important;
       padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;
@@ -25,6 +25,7 @@ var PaperChatResize = (() => {
       touch-action:none;user-select:none;z-index:20;
       -moz-window-dragging:no-drag;
     }
+    .paper-chat-panel > .pc-resize-panel:hover {background:color-mix(in srgb,currentColor 9%,transparent)!important}
     .paper-chat-panel > .pc-resize-panel:focus-visible {outline:2px solid Highlight;outline-offset:-2px}`;
     const original = {};
     for (const name of ['position', 'width', 'flexBasis', 'minWidth', 'maxWidth']) original[name] = panel.style[name];
@@ -46,35 +47,65 @@ var PaperChatResize = (() => {
     const finish = (commit = false) => {
       const drag = ui.drag; if (!drag) return;
       ui.drag = null;
+      for (const remove of drag.listeners) remove();
+      drag.overlay.remove();
       if (commit) persist();
       else { ui.desired = drag.desired; apply(plugin, state); }
-      try { if (handle.hasPointerCapture(drag.id)) handle.releasePointerCapture(drag.id); } catch { /* Detached document. */ }
+      try { if (drag.pointer && handle.hasPointerCapture(drag.id)) handle.releasePointerCapture(drag.id); } catch { /* Detached document. */ }
     };
-    on(handle, 'pointerdown', event => {
+    const move = event => {
+      if (state.disposed) { cleanup(state); return; }
+      const drag = ui.drag;
+      if (!drag || drag.lastEvent === event || (drag.pointer && event.pointerId !== drag.id) || !Number.isFinite(event.clientX)) return;
+      drag.lastEvent = event;
+      // Document listeners also see a release whose up event was lost outside the window.
+      if (event.buttons === 0) { finish(true); return; }
+      consume(event);
+      ui.desired = drag.width + (event.clientX - drag.x) * (drag.side === 'left' ? 1 : -1);
+      apply(plugin, state);
+    };
+    const up = event => {
+      const drag = ui.drag;
+      if (!drag || (drag.pointer && event.pointerId !== drag.id)) return;
+      consume(event); finish(!state.disposed);
+      if (state.disposed) cleanup(state);
+    };
+    const begin = (event, pointer) => {
       if (state.disposed) { cleanup(state); return; }
       if (ui.drag || event.button !== 0 || event.isPrimary === false || !Number.isFinite(event.clientX)) return;
       apply(plugin, state);
       consume(event);
-      ui.drag = { id: event.pointerId, x: event.clientX, width: ui.actual, side: ui.side, desired: ui.desired };
-      try { handle.setPointerCapture(event.pointerId); } catch { finish(); }
+      const overlay = doc.createElementNS('http://www.w3.org/1999/xhtml', 'div');
+      overlay.className = 'pc-resize-overlay';
+      overlay.setAttribute('aria-hidden', 'true');
+      overlay.style.cssText = 'position:fixed!important;inset:0!important;z-index:2147483647!important;'
+        + 'background:transparent!important;cursor:col-resize!important;pointer-events:auto!important;'
+        + 'touch-action:none!important;user-select:none!important;-moz-window-dragging:no-drag;';
+      // Stay outside the zoomed panel and above the PDF iframe for the entire gesture.
+      (doc.documentElement || parent).append(overlay);
+      const drag = ui.drag = { id: event.pointerId, pointer, x: event.clientX, width: ui.actual,
+        side: ui.side, zoom: panel.style.zoom, desired: ui.desired, overlay, listeners: [] };
+      const listen = (target, type, handler) => {
+        target.addEventListener(type, handler, true);
+        drag.listeners.push(() => target.removeEventListener(type, handler, true));
+      };
+      listen(doc, pointer ? 'pointermove' : 'mousemove', move);
+      listen(doc, pointer ? 'pointerup' : 'mouseup', up);
+      listen(doc, 'keydown', event => { if (event.key === 'Escape') { consume(event); finish(); } });
+      if (pointer) {
+        listen(doc, 'pointercancel', event => { if (event.pointerId === ui.drag?.id) finish(true); });
+        // Capturing is an optimization. Gecko can drop it while the sibling PDF relayouts.
+        try { handle.setPointerCapture(event.pointerId); } catch { /* Overlay/document fallback remains active. */ }
+      }
+    };
+    on(handle, 'pointerdown', event => begin(event, true));
+    on(handle, 'mousedown', event => begin(event, false));
+    on(handle, 'pointermove', move);
+    on(handle, 'pointerup', up);
+    on(handle, 'pointercancel', event => {
+      if (event.pointerId === ui.drag?.id) finish(true);
     });
-    on(handle, 'pointermove', event => {
-      if (state.disposed) { cleanup(state); return; }
-      const drag = ui.drag;
-      if (!drag || event.pointerId !== drag.id || !Number.isFinite(event.clientX)) return;
-      consume(event);
-      ui.desired = drag.width + (event.clientX - drag.x) * (drag.side === 'left' ? 1 : -1);
-      apply(plugin, state);
-    });
-    on(handle, 'pointerup', event => {
-      if (event.pointerId !== ui.drag?.id) return;
-      consume(event); finish(!state.disposed);
-      if (state.disposed) cleanup(state);
-    });
-    for (const type of ['pointercancel', 'lostpointercapture']) on(handle, type, event => {
-      if (event.pointerId === ui.drag?.id) finish();
-    });
-    on(win, 'blur', () => finish());
+    on(win, 'blur', () => finish(true));
     on(handle, 'keydown', event => {
       if (state.disposed) { cleanup(state); return; }
       if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
@@ -84,8 +115,7 @@ var PaperChatResize = (() => {
     });
     const refresh = () => {
       if (state.disposed) { cleanup(state); return; }
-      // A side/zoom change during a gesture starts a new coordinate system.
-      if (ui.drag) finish();
+      if (ui.drag && (ui.drag.zoom !== panel.style.zoom || ui.drag.side !== sideFor(plugin, panel, win))) finish(true);
       apply(plugin, state);
     };
     on(win, 'resize', refresh);
@@ -108,10 +138,19 @@ var PaperChatResize = (() => {
     apply(plugin, state);
     return ui;
   }
+  function sideFor(plugin, panel, win) {
+    const order = Number(win.getComputedStyle(panel).order);
+    if (order < 0) return 'left';
+    if (order > 0) return 'right';
+    try { return PaperChatAppearance.state(plugin).side; } catch { return 'right'; }
+  }
   function apply(plugin, state) {
     const ui = mounts.get(state); if (!ui) return;
     if (state.disposed) { cleanup(state); return; }
     const { panel, parent, handle, win } = ui;
+    const side = sideFor(plugin, panel, win);
+    // Compare with the gesture itself: a ResizeObserver can run before MutationObserver.
+    if (ui.drag && (ui.drag.side !== side || ui.drag.zoom !== panel.style.zoom)) ui.finish(true);
     const rect = panel.getBoundingClientRect();
     const computed = win.getComputedStyle(panel);
     // Computed border-box width avoids offsetWidth's integer rounding at zoom.
@@ -122,13 +161,6 @@ var PaperChatResize = (() => {
     const maximum = Math.max(minimum, available - readerMinimum);
     if (ui.desired === null && rect.width > 0) ui.desired = rect.width;
     ui.actual = Math.max(minimum, Math.min(maximum, ui.desired ?? minimum));
-    let side;
-    const order = Number(computed.order);
-    if (order < 0) side = 'left';
-    else if (order > 0) side = 'right';
-    else {
-      try { side = PaperChatAppearance.state(plugin).side; } catch { side = 'right'; }
-    }
     ui.side = side;
     const write = (target, name, value) => { if (target.style[name] !== value) target.style[name] = value; };
     if (computed.position === 'static' || !computed.position) write(panel, 'position', 'relative');

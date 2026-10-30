@@ -7,7 +7,7 @@
 1. 安装 Windows 原生 Zotero、Node.js 和 Python。重新打开终端，确认 `node --version` 和 `py -3 --version` 可运行。
 2. 使用 Codex 模式时，安装 Windows 原生 Codex CLI（例如 `npm install -g @openai/codex`），执行 `codex login` 并通过 ChatGPT 账号登录。只使用外部 API 时可跳过此项。WSL 中的 CLI 不能由 Windows Zotero 直接调用。
 3. 将源码放在当前用户的私有目录，运行 `npm run build`。也可直接用 `py -3 scripts/build.py`。不需要 `npm install` 项目依赖。
-4. 在 Zotero 的工具 → 插件 → 从文件安装插件中选择 `dist/zotero-paper-chat-0.6.1.xpi`。保留源码目录；移动后重新构建和安装。
+4. 在 Zotero 的工具 → 插件 → 从文件安装插件中选择 `dist/zotero-paper-chat-0.6.2.xpi`。保留源码目录；移动后重新构建和安装。
 5. 打开 PDF。自动启动失败时，双击源码根目录的“启动伴读服务.cmd”，或运行 `npm start` 查看诊断。
 
 本机 XPI 含绝对路径和连接令牌，不能分享。分享源码请运行 `npm run pack:source`。
