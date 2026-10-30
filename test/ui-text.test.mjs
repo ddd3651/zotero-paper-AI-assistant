@@ -10,8 +10,8 @@ test('UI and bridge resolve every referenced text key from the single dictionary
     const base = new URL('../' + folder + '/', import.meta.url);
     for (const file of readdirSync(base).filter(name => /\.(js|mjs)$/.test(name))) {
       const source = readFileSync(new URL(file, base), 'utf8');
-      for (const match of source.matchAll(/\bt\("([a-zA-Z0-9_.]+)"/g)) {
-        assert.equal(scope.PaperChatText.t(match[1]), t(match[1]), file + ': ' + match[1]);
+      for (const match of source.matchAll(/\bt\((['"])([a-zA-Z0-9_.]+)\1/g)) {
+        assert.equal(scope.PaperChatText.t(match[2]), t(match[2]), file + ': ' + match[2]);
       }
     }
   }

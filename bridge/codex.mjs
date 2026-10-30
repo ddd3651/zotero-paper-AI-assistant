@@ -65,7 +65,7 @@ export class CodexClient extends EventEmitter {
       catch (error) { this.emit('diagnostic', error.message); }
     });
     await this.call('initialize', {
-      clientInfo: { name: 'zotero_paper_chat', title: 'Zotero Paper Chat', version: '0.5.2' },
+      clientInfo: { name: 'zotero_paper_chat', title: 'Zotero Paper Chat', version: '0.6.0' },
     });
     this.send({ method: 'initialized', params: {} });
     const { account } = await this.call('account/read', { refreshToken: false });
@@ -152,6 +152,7 @@ export class CodexClient extends EventEmitter {
     if (signal?.aborted) throw new Error(t("errors.codex.error04"));
     const { account } = await this.call('account/read', { refreshToken: false });
     if (account?.type !== 'chatgpt') throw new Error(t("errors.codex.error05"));
+    const createdThread = !threadId;
     if (!threadId) {
       const result = await this.call('thread/start', {
         ...(model ? { model } : {}), modelProvider: 'openai', cwd: this.cwd,
@@ -190,6 +191,7 @@ export class CodexClient extends EventEmitter {
     } catch (error) {
       const job = this.jobs.get(threadId);
       if (job) { clearTimeout(job.timer); this.jobs.delete(threadId); }
+      if (createdThread) await this.release(threadId);
       throw error;
     } finally {
       if (interrupt) signal?.removeEventListener('abort', interrupt);

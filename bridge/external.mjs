@@ -38,7 +38,7 @@ export function redactError(error, keys = []) {
 }
 
 export async function askExternal({ baseUrl, model, apiKey, messages, signal, onDelta,
-  timeoutMs = 240000, stream = true, fetchImpl = fetch }) {
+  timeoutMs = 240000, stream = true, maxTokens, fetchImpl = fetch }) {
   const settings = normalizeExternal({ baseUrl, model, apiKey });
   if (!settings.baseUrl || !settings.model || !settings.apiKey) throw externalError(t("errors.external.error05"));
   const controller = new AbortController();
@@ -52,7 +52,7 @@ export async function askExternal({ baseUrl, model, apiKey, messages, signal, on
     const response = await fetchImpl(settings.baseUrl + '/chat/completions', {
       method: 'POST', redirect: 'error', signal: controller.signal,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` },
-      body: JSON.stringify({ model: settings.model, messages, stream }),
+      body: JSON.stringify({ model: settings.model, messages, stream, ...(maxTokens ? { max_tokens: maxTokens } : {}) }),
     });
     if (!response.ok) {
       await response.body?.cancel();

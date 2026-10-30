@@ -1,3 +1,4 @@
+import { contextBudget } from './context.mjs';
 import { t } from './ui-text.mjs';
 import { normalizeExternal, publicExternal } from './external.mjs';
 export async function readModels(client) {
@@ -38,7 +39,7 @@ export function composeInstructions(base, customPrompt = '', webSearch = false) 
   return base + personal + mode;
 }
 
-export function selectSettings(models, desired = {}, { strict = false, current = {} } = {}) {
+function selectBaseSettings(models, desired = {}, { strict = false, current = {} } = {}) {
   if (!desired || typeof desired !== 'object' || Array.isArray(desired)) throw new Error(t("errors.models.error04"));
   const explicitWebSearch = Object.hasOwn(desired, 'webSearch');
   const external = normalizeExternal(Object.hasOwn(desired, 'external') ? desired.external : {}, current.external || {});
@@ -67,4 +68,10 @@ export function selectSettings(models, desired = {}, { strict = false, current =
     effort = model.efforts.some(e => e.value === model.defaultEffort) ? model.defaultEffort : model.efforts[0].value;
   }
   return { provider, webSearch, model: model.id, effort, customPrompt, external: { ...publicExternal(external), hasApiKey } };
+}
+
+export function selectSettings(models, desired = {}, options = {}) {
+  const selected = selectBaseSettings(models, desired, options);
+  return Object.hasOwn(desired, 'contextBudget') || options.current?.contextBudget
+    ? { ...selected, contextBudget: contextBudget(desired.contextBudget, options.current?.contextBudget) } : selected;
 }

@@ -16,3 +16,6 @@ addon/config.js
 /VERIFICATION.md
 /启动伴读服务.command
 /启动伴读服务.cmd
+
+# Durable local conversation records and interrupted atomic writes
+**/conversations/

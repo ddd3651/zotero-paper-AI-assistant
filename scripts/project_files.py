@@ -17,7 +17,7 @@ def project_files(root):
             candidates.extend(folder.rglob('*'))
     for path in sorted(candidates):
         rel = path.relative_to(root)
-        if any(part in {'node_modules', '__pycache__', 'runtime', '.git'} for part in rel.parts):
+        if any(part in {'node_modules', '__pycache__', 'runtime', 'conversations', '.git'} for part in rel.parts):
             continue
         if rel.as_posix() in {'bridge/config.json', 'addon/config.js'}:
             continue

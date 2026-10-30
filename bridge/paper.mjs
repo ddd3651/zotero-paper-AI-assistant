@@ -34,8 +34,10 @@ export function contextHash(paper) {
 
 export function buildPrompt(body, includePaper) {
   const parts = [];
+  if (includePaper && body.paper.sourceCoverage?.partial) parts.push('本次仅提供部分论文页或原文片段，不代表全文。回答须说明依据范围；全文总结请求应说明覆盖不足，不能把未提供的页面当作已阅读。');
   if (includePaper) parts.push('下方 JSON 是论文资料，pages.number 为从 1 开始的 PDF 物理页码。\n<untrusted_paper>\n' + JSON.stringify({
     title: body.paper.title, pageCount: body.paper.pageCount, pages: body.paper.pages,
+    ...(body.paper.sourceCoverage ? { sourceCoverage: body.paper.sourceCoverage } : {}),
   }) + '\n</untrusted_paper>');
   parts.push(`当前阅读位置：PDF 第 ${body.currentPage || body.paper.pages[0].number} 页。`);
   if (body.selection) parts.push(`用户框选的原文（仅为资料${body.selectionPage ? `，起始 PDF 第 ${body.selectionPage} 页` : ''}）：\n` + JSON.stringify(body.selection));

@@ -53,7 +53,9 @@
     "fontLabel": "字号",
     "fontAria": "插件字号",
     "fontSliderAria": "插件字号滑块",
-    "resetZoom": "恢复界面缩放至 100%"
+    "resetZoom": "恢复界面缩放至 100%",
+    "resizePanel": "拖动调整面板宽度",
+    "resizePanelKeys": "调整面板宽度，左右方向键微调，Home恢复默认宽度"
   },
   "core": {
     "error01": "当前Zotero版本的PDF文字接口不兼容"
@@ -247,6 +249,81 @@
       "text03": "回答记录已过期",
       "text04": "请先停止当前回答",
       "text05": "未知接口"
+    },
+    "history": {
+      "invalidId": "无效的对话ID",
+      "readFailed": "无法读取历史对话",
+      "invalidRecord": "历史对话数据无效",
+      "invalidPaperId": "无效的论文ID",
+      "invalidTitle": "对话名称须包含1至200个字符",
+      "notFound": "找不到该历史对话，请刷新列表",
+      "paperMismatch": "该对话属于另一篇论文",
+      "busy": "该对话正在处理请求，请稍后重试",
+      "identityRequired": "需要提供论文或对话ID",
+      "saveFailed": "历史对话保存失败，请重试",
+      "invalidImport": "旧对话导入数据无效，原始快照已保留"
+    },
+    "context": {
+      "invalidBudget": "上下文预算设置无效",
+      "insufficientBudget": "上下文预算不足，请增加容量或减少预留空间",
+      "cancelled": "上下文整理已取消",
+      "summaryInputTooLarge": "待整理的内容超出上下文预算",
+      "invalidSummary": "摘要为空或过长，原有上下文已保留",
+      "summaryBudgetExceeded": "摘要及引用超出预算，原有上下文已保留",
+      "evidenceTooLarge": "上下文预算容不下可用论文原文，请增加容量或缩小阅读范围",
+      "inputTooLarge": "输入超出上下文预算，请增加容量或缩短问题与选区"
     }
+  },
+  "history": {
+    "title": "历史对话",
+    "close": "关闭详情",
+    "loading": "正在读取历史…",
+    "loadFailed": "历史读取失败 · 点击重试",
+    "retry": "刷新历史",
+    "localPaper": "当前论文 · 保存在本机",
+    "invalidResponse": "对话服务返回无效数据",
+    "empty": "这篇论文还没有历史对话。",
+    "current": " · 当前",
+    "entryMeta": "{time} · {count}条消息",
+    "rename": "重命名",
+    "delete": "删除",
+    "save": "保存名称",
+    "cancel": "取消",
+    "titleRequired": "请输入对话名称",
+    "confirmDelete": "确认删除此对话？",
+    "importedTitle": "升级前的对话",
+    "importFailed": "旧对话尚未确认保存，原始快照已保留，请刷新历史重试。",
+    "clearCurrent": "清空当前",
+    "unreadable": "有{count}条历史记录暂时无法读取，其他记录仍可打开。",
+    "resumeFallback": "先前打开的对话已删除或归属不符，已改为打开当前论文的最近对话。"
+  },
+  "context": {
+    "title": "上下文",
+    "details": "详情 ›",
+    "estimatedUsage": "估算上下文占用",
+    "capacity": "配置的上下文预算（tokens，非模型实测容量）",
+    "unknownCapacity": "留空恢复默认32768",
+    "saveCapacity": "保存容量",
+    "invalidCapacity": "请输入16384至2000000之间的整数，或留空恢复默认。",
+    "compact": "现在整理",
+    "compacting": "正在整理…",
+    "compacted": "整理完成 · 完整对话已保留",
+    "compactFailed": "上下文整理失败",
+    "compactTimeout": "整理仍未完成，请稍后刷新详情。",
+    "status": "已保存到本地 · 上下文约{percent}%",
+    "usage": "估算占用{percent}% · 已预留回答空间",
+    "unknownUsage": "已保存到本地 · 上下文容量未知",
+    "unknown": "未知",
+    "auto": "接近容量上限时，自动整理较早的对话。占用量为估算值。",
+    "sources": "估算上下文：{tokens} tokens\n最近完整消息：{recent}条\n预留回答空间：{reserved} tokens",
+    "showSummary": "查看已整理的摘要",
+    "noSummary": "尚未整理摘要。",
+    "archiveNote": "完整问答仍可在历史对话中查看。",
+    "compactCost": "整理会调用当前模型，计入模型用量。",
+    "partialCoverage": "本次使用了部分论文原文：选入{selected}页，提供{provided}页，论文共{total}页。部分页面也可能仅包含摘录。",
+    "noCompactNeeded": "当前没有需要整理的早期对话，完整问答已保留。",
+    "reconcile": "检查整理任务状态",
+    "stopped": "整理已停止，完整问答已保留。",
+    "unsettled": "尚未确认服务端整理任务已结束，操作暂时锁定。请停止任务或检查任务状态后重试。"
   }
 }

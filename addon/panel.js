@@ -22,6 +22,7 @@ var PaperChat = {
           if (state.jobId) this.api(`/jobs/${state.jobId}/cancel`, 'POST', {}).catch(() => {});
           state.highlightCleanup?.();
           state.appearanceCleanup?.();
+          state.resizeCleanup?.();
           state.interactionCleanup?.();
           this.states.delete(reader);
         }
@@ -181,9 +182,11 @@ var PaperChat = {
     const head = this.el(doc, 'div', null, 'pc-head');
     const title = this.el(doc, 'div', null, 'pc-title');
     title.append(this.el(doc, 'span', PaperChatText.t("metadata.name")));
-    const close = this.el(doc, 'button', PaperChatText.t("panel.collapse"));
+    const close = PaperChatConversations.icon(this, doc, "panel.collapse", "collapse");
     close.addEventListener('click', () => { panel.hidden = true; });
-    title.append(close);
+    const history = PaperChatConversations.icon(this, doc, "history.title", "history");
+    const reset = PaperChatConversations.icon(this, doc, "common.newChat", "new");
+    title.append(history, reset, close);
     const status = this.el(doc, 'div', PaperChatText.t("panel.text01"), 'pc-status');
     head.append(title, status);
     const log = this.el(doc, 'div', null, 'pc-log');
@@ -229,8 +232,7 @@ var PaperChat = {
     settingsMenu.append(settingsTitle, modelLabel, effortLabel, promptLabel, promptSave, promptStatus,
       this.el(doc, 'div', PaperChatText.t("panel.text07"), 'pc-settings-help'));
     modelRow.append(modelButton, settingsMenu);
-    const reset = this.el(doc, 'button', PaperChatText.t("common.newChat"));
-    const clear = this.el(doc, 'button', PaperChatText.t("common.clear"));
+    const clear = this.el(doc, 'button', PaperChatText.t("history.clearCurrent"));
     clear.title = PaperChatText.t("panel.text08");
     const send = this.el(doc, 'button', PaperChatText.t("common.send"), 'pc-send');
     const cancel = this.el(doc, 'button', PaperChatText.t("common.stop")); cancel.hidden = true;
@@ -239,7 +241,7 @@ var PaperChat = {
     const error = this.el(doc, 'div', '', 'pc-error');
     actions.append(cancel, send);
     const leftActions = this.el(doc, 'div', null, 'pc-actions');
-    leftActions.append(reset, clear);
+    leftActions.append(clear);
     bottom.append(leftActions, actions);
     compose.append(selectionCard, input, modelRow, bottom, hint, error);
     panel.append(head, log, compose);
@@ -250,10 +252,14 @@ var PaperChat = {
       promptInput, promptSave, promptStatus, promptDirty: false,
       modelButton, modelSelect, effortSelect, settingsMenu, settingsReady: false, settingsSaving: false,
       busy: false, jobId: null, pageCache: new Map(), rawPageCache: new Map(), sections: [], pageCount: 0, allowedPages: new Set(), messages: [],
-      paperId: `${item.libraryID}/${item.key}/${Zotero.Utilities.randomString()}`,
+      paperId: `${item.libraryID}/${item.key}`, paperTitle: reader._title || item.getField('title'),
       oldParentStyle, oldReaderStyle, parent, disposed: false };
     this.states.set(reader, state);
-    PaperChatAppearance.mount(this, state, { head, title });
+    const appearance = PaperChatAppearance.mount(this, state, { head, title });
+    settingsMenu.append(appearance.row, appearance.sideButton);
+    PaperChatConversations.mount(this, state, { head, title, history, welcome });
+    PaperChatResize.mount(this, state);
+    state.resizeCleanup = () => PaperChatResize.cleanup(state);
     state.appearanceCleanup = () => PaperChatAppearance.cleanup(state);
     state.apiSettings = PaperChatAPISettings.mount(this, state, { settingsMenu, modelLabel, effortLabel });
     PaperChatInteraction.mount(this, state, head);
@@ -289,23 +295,6 @@ var PaperChat = {
       state.settingsPromise = this.saveSettings(state, { model: modelSelect.value, effort: effortSelect.value });
     });
     effortSelect.addEventListener('change', () => { state.settingsPromise = this.saveSettings(state, { effort: effortSelect.value }); });
-    const saved = this.savedTranscripts?.[reader._instanceID];
-    if (saved?.messages?.length) {
-      state.pageCount = saved.pageCount || 0;
-      state.allowedPages = new Set(saved.allowedPages || []);
-      for (const entry of saved.messages) {
-        // Version 0.1.0 displayed citations as spaced link labels in its DOM.
-        const text = entry.role === 'assistant' ? entry.text.replace(/(?<!\[)第\s+(\d+)\s+页(?!\])/g, '[第$1页]') : entry.text;
-        const restored = this.message(state, entry.role, text);
-        if (entry.activity) {
-          restored._paperChatEntry.activity = { ...entry.activity, status: entry.activity.status === 'running' ? 'cancelled' : entry.activity.status,
-            finishedAt: entry.activity.finishedAt || Date.now() };
-          PaperChatInteraction.progress(this, state, restored);
-        }
-      }
-      state.replayHistory = true;
-      delete this.savedTranscripts[reader._instanceID];
-    }
     send.addEventListener('click', () => this.ask(state));
     input.addEventListener('keydown', e => {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); this.ask(state); }
@@ -316,9 +305,10 @@ var PaperChat = {
       state.cancelRequested = true;
       if (state.jobId) await this.api(`/jobs/${state.jobId}/cancel`, 'POST', {}).catch(() => {});
     });
-    reset.addEventListener('click', () => this.clearConversation(state, welcome));
+    reset.addEventListener('click', () => PaperChatConversations.create(this, state));
     clear.addEventListener('click', () => this.clearConversation(state, welcome));
-    this.ensureBridge().then(async info => {
+    state.historyReady = this.ensureBridge().then(async info => {
+      await PaperChatConversations.initialize(this, state);
       const settings = await this.api('/settings');
       this.applySettings(settings);
       this.connectionStatus(state, info);
@@ -354,7 +344,10 @@ var PaperChat = {
     let data;
     try { data = JSON.parse(response.responseText); }
     catch { throw new Error(PaperChatText.t("panel.error01")); }
-    if (response.status < 200 || response.status >= 300) throw new Error(data.error || PaperChatText.t("panel.format01", {value1: (response.status)}));
+    if (response.status < 200 || response.status >= 300) {
+      const error = new Error(data.error || PaperChatText.t("panel.format01", {value1: response.status}));
+      error.status = response.status; throw error;
+    }
     return data;
   },
 
@@ -363,7 +356,7 @@ var PaperChat = {
     this.starting = (async () => {
       try {
         const info = await this.api('/status');
-        if (info.apiVersion === 4 && info.version === '0.5.2') return info;
+        if (info.apiVersion === 5 && info.version === '0.6.0') return info;
         await this.api('/shutdown', 'POST', {});
         await Zotero.Promise.delay(700);
       }
@@ -498,15 +491,15 @@ var PaperChat = {
     state.selectionText.textContent = '';
   },
 
-  async clearConversation(state, welcome) {
+  async clearConversation(state, welcome = state.welcome) {
+    if (state.conversationsUI) return PaperChatConversations.clear(this, state);
     if (state.busy) return;
     state.clear.disabled = true; state.reset.disabled = true;
     try {
-      await this.api('/reset', 'POST', { paperId: state.paperId });
-      state.log.replaceChildren(welcome); state.allowedPages.clear(); state.messages = []; state.replayHistory = false;
+      await this.api('/reset', 'POST', { paperId: state.paperId, conversationId: state.conversationId });
+      state.log.replaceChildren(welcome); state.allowedPages.clear(); state.messages = [];
       state.input.value = ''; state.error.textContent = ''; state.navigationSerial = (state.navigationSerial || 0) + 1;
-      this.removeSelection(state);
-      PaperChatReader.clearHighlight(state);
+      this.removeSelection(state); PaperChatReader.clearHighlight(state);
       state.status.textContent = PaperChatText.t("panel.text23");
     } catch (error) { state.error.textContent = error.message; }
     finally { this.setBusy(state, false); }
@@ -581,15 +574,17 @@ var PaperChat = {
 
   setBusy(state, busy) {
     state.busy = busy;
-    for (const el of [state.send, state.reset, state.clear]) el.disabled = busy;
-    state.cancel.hidden = !busy;
+    for (const el of [state.send, state.reset, state.clear]) el.disabled = busy || !!state.historyBusy || !state.historyLoaded;
+    PaperChatConversations.setBusy(state);
+    state.cancel.hidden = !busy && !state.compacting;
     for (const control of [state.modelButton, state.modelSelect, state.effortSelect, state.promptSave, state.promptInput]) control.disabled = busy || state.settingsSaving || !state.settingsReady;
     PaperChatAPISettings.setBusy(state, busy || state.settingsSaving || !state.settingsReady);
     if (busy) { state.settingsMenu.hidden = true; state.modelButton.setAttribute('aria-expanded', 'false'); }
   },
 
   async ask(state) {
-    if (state.busy || !state.input.value.trim()) return;
+    if (state.busy || state.historyBusy || !state.historyLoaded || !state.input.value.trim()) return;
+    const conversationId = state.conversationId;
     const question = state.input.value.trim();
     state.error.textContent = ''; state.cancelRequested = false;
     this.setBusy(state, true);
@@ -606,34 +601,43 @@ var PaperChat = {
       await state.settingsPromise;
       this.applySettings(await this.api('/settings'));
       const data = await this.readPaper(state, question);
+      if (state.disposed || state.conversationId !== conversationId) return;
       if (state.cancelRequested) return;
       for (const page of data.paper.pages) state.allowedPages.add(page.number);
-      this.message(state, 'user', question); state.input.value = '';
+      const user = this.message(state, 'user', question);
+      Object.assign(user._paperChatEntry, { selection: data.selection, selectionPage: data.selectionPage, currentPage: data.currentPage, pageReferences: data.paper.pages.map(page => page.number) });
+      state.input.value = '';
       answer = this.message(state, 'assistant', PaperChatText.t("activity.reading"));
       answer._paperChatEntry.activity = { startedAt: Date.now(), status: 'running', summary: '' };
       PaperChatInteraction.progress(this, state, answer);
-      let history = state.messages.slice(0, -2).slice(-6);
-      while (JSON.stringify(history).length > 10000) history.shift();
-      const replay = state.replayHistory ? '下面是升级前的对话记录，仅作为背景资料：\n' + JSON.stringify(history) + '\n\n当前问题：\n' + question : question;
-      const { jobId } = await this.api('/ask', 'POST', { ...data, ...state.selectedSettings, question: replay });
-      state.replayHistory = false;
+      const { jobId, conversationId: returnedId } = await this.api('/ask', 'POST', { ...data, ...state.selectedSettings, conversationId, question });
+      if (state.disposed || state.conversationId !== conversationId) return;
+      if (!jobId || returnedId && returnedId !== conversationId) throw new Error(PaperChatText.t("history.invalidResponse"));
       state.jobId = jobId;
       state.status.textContent = PaperChatText.t("panel.format09", {value1: (data.paper.pages.length)});
       let previous = '';
-      while (!state.disposed) {
+      while (!state.disposed && state.conversationId === conversationId) {
         if (state.cancelRequested) await this.api(`/jobs/${jobId}/cancel`, 'POST', {});
         const job = await this.api(`/jobs/${jobId}`);
+        if (state.disposed || state.conversationId !== conversationId) return;
         PaperChatInteraction.progress(this, state, answer, job);
+        if (job.phase === 'compacting') {
+          state.status.textContent = PaperChatText.t('context.compacting');
+          state.conversationsUI.statusText.textContent = PaperChatText.t('context.compacting');
+        } else if (job.phase === 'answering') {
+          state.conversationsUI.statusText.textContent = PaperChatText.t('activity.generating');
+        }
         if (job.text && job.text !== previous) { this.render(state, answer, job.text); previous = job.text; }
         if (job.status === 'completed') {
           if (!job.text.trim()) throw new Error(PaperChatText.t("panel.error08"));
           break;
         }
-        if (job.status !== 'running') throw new Error(job.error || PaperChatText.t("panel.text25"));
+        if (!['running', 'queued', 'pending'].includes(job.status)) throw new Error(job.error || PaperChatText.t("panel.text25"));
         await Zotero.Promise.delay(500);
       }
     } catch (e) {
       Zotero.logError(e);
+      if (state.disposed || state.conversationId !== conversationId) return;
       state.error.textContent = e.message;
       if (answer) {
         if (answer._paperChatEntry.text === PaperChatText.t("activity.reading")) this.render(state, answer, PaperChatText.t("panel.text26"));
@@ -643,17 +647,17 @@ var PaperChat = {
     } finally {
       win.clearInterval(state.activityTimer); state.activityTimer = null;
       state.jobId = null;
-      this.setBusy(state, false);
-      this.connectionStatus(state);
+      if (!state.disposed) { this.setBusy(state, false); this.connectionStatus(state); }
+      if (!state.disposed && state.conversationId === conversationId) PaperChatConversations.refreshContext(this, state).catch(e => { state.error.textContent = e.message; });
     }
   },
 
   async stop() {
     this.stopped = true;
     PaperChatSelection.stop();
-    const snapshot = {};
+    const snapshot = { ...this.savedTranscripts };
     for (const [reader, state] of this.states) {
-      try { snapshot[reader._instanceID] = { messages: state.messages, pageCount: state.pageCount, allowedPages: [...state.allowedPages] }; }
+      try { if (!snapshot[reader._instanceID]?.messages?.length || state.historyLoaded) snapshot[reader._instanceID] = { paperId: state.paperId, conversationId: state.conversationId, messages: state.messages, pageCount: state.pageCount, allowedPages: [...state.allowedPages] }; }
       catch { /* Closed readers do not need a transcript handoff. */ }
     }
     Zotero.PaperChatUpgradeSnapshot = JSON.stringify(snapshot);
@@ -662,6 +666,7 @@ var PaperChat = {
     for (const state of this.states.values()) {
       state.disposed = true;
       state.appearanceCleanup?.();
+      state.resizeCleanup?.();
       state.highlightCleanup?.();
       state.interactionCleanup?.();
       if (state.jobId) await this.api(`/jobs/${state.jobId}/cancel`, 'POST', {}).catch(() => {});

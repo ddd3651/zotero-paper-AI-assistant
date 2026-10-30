@@ -10,7 +10,7 @@
 2. 在 Zotero 的插件页面安装 XPI。
 3. 插件会自动启动服务。需要看服务输出时，运行 `npm start` 或双击生成的启动脚本。
 
-修改 `addon/` 后需要重新构建并安装。修改 `bridge/` 后需要重启本地服务。升级前保存重要对话。
+修改 `addon/` 后需要重新构建并安装。修改 `bridge/` 后需要重启本地服务。0.6.0起，对话自动保存在本机的`bridge/runtime/conversations/`，升级前可以备份这个目录。
 
 ## 默认提示词
 
@@ -30,7 +30,7 @@
 
 ## 发布
 
-`npm run pack:source` 使用显式文件清单生成确定性的源码 ZIP。不会打包 `tmp/`、`dist/`、本机配置、开发验证记录、PDF 或生成的启动脚本。GitHub Actions 执行测试后，将这个 ZIP 保存为构建产物。
+`npm run pack:source` 使用显式文件清单生成确定性的源码 ZIP。不会打包 `tmp/`、`dist/`、`bridge/runtime/`中的历史对话和摘要、本机配置、开发验证记录、PDF 或生成的启动脚本。GitHub Actions 执行测试后，将这个 ZIP 保存为构建产物。
 
 本机 XPI 包含本地服务路径和本机连接密钥，不能作为通用 Release 附件。要给另一台电脑使用，请分享源码，让使用者在目标电脑上构建。
 

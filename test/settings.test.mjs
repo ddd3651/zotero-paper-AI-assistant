@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { createBridge } from '../bridge/server.mjs';
 import { CodexClient } from '../bridge/codex.mjs';
+import { contextBudget } from '../bridge/context.mjs';
 import { INSTRUCTIONS } from '../bridge/paper.mjs';
 
 const paperRequest = (question = '总结', extra = {}) => ({
@@ -152,7 +153,7 @@ test('a question reconnects after transient Codex discovery failure without chan
 
 test('/settings defaults customPrompt and partial updates preserve current model, effort and prompt', async t => {
   const f = fixture(t);
-  const initial = { provider: 'codex', webSearch: false, external: { baseUrl: '', model: '', hasApiKey: false }, model: 'gpt-b', effort: 'high', customPrompt: '' };
+  const initial = { contextBudget: contextBudget(), provider: 'codex', webSearch: false, external: { baseUrl: '', model: '', hasApiKey: false }, model: 'gpt-b', effort: 'high', customPrompt: '' };
   assert.deepEqual((await f.request('GET', '/settings')).body.current, initial);
   const prompt = '  请以导师的口吻逐段解释\n保留公式。  ';
   assert.deepEqual((await f.request('POST', '/settings', { customPrompt: prompt })).body.current, { ...initial, customPrompt: prompt });
@@ -166,7 +167,7 @@ test('/settings defaults customPrompt and partial updates preserve current model
   assert.equal(saved.token, 'test-only-token');
   assert.equal(saved.customPrompt, '');
   if (process.platform !== 'win32') assert.equal(statSync(f.configFile).mode & 0o777, 0o600);
-  assert.deepEqual(readdirSync(f.directory), ['config.json']);
+  assert.deepEqual(readdirSync(f.directory), ['config.json', 'runtime']);
 });
 
 test('/settings rejects invalid prompts without changing memory or disk, and accepts 12000 characters', async t => {
@@ -192,7 +193,7 @@ test('failed atomic save leaves settings unchanged and cleans up temporary files
   const result = await f.request('POST', '/settings', { customPrompt: 'unsaved' });
   assert.equal(result.status, 400);
   assert.equal((await f.request('GET', '/settings')).body.current.customPrompt, 'saved-prompt');
-  assert.deepEqual(readdirSync(f.directory), ['config.json']);
+  assert.deepEqual(readdirSync(f.directory), ['config.json', 'runtime']);
 });
 
 test('/ask sends saved custom prompt as high-level instructions and retains source/tool boundaries', async t => {
@@ -215,7 +216,7 @@ test('/ask sends saved custom prompt as high-level instructions and retains sour
   assert.ok(!turnText(f).includes(customPrompt));
 });
 
-test('prompt changes rebuild the thread with full paper and the latest six completed turns', async t => {
+test('prompt changes rebuild the thread with original paper and all completed turns within budget', async t => {
   const f = fixture(t, { customPrompt: 'initial-style' });
   for (let i = 1; i <= 8; i++) {
     const extra = i === 8 ? { selection: 'selected-example', selectionPage: 1 } : {};
@@ -231,13 +232,13 @@ test('prompt changes rebuild the thread with full paper and the latest six compl
   assert.doesNotMatch(rpc(f, 'thread/start')[1].baseInstructions, /initial-style/);
   assert.match(turnText(f), /unique-paper-source/);
   const replay = history(f);
-  assert.equal(replay.length, 6);
+  assert.equal(replay.length, 8);
   replay.forEach((entry, i) => {
-    assert.ok(entry.user.includes(`question-${i + 3}`));
-    assert.equal(entry.assistant, `answer-${i + 3}`);
+    assert.ok(entry.user.includes(`question-${i + 1}`));
+    assert.equal(entry.assistant, `answer-${i + 1}`);
   });
-  assert.match(replay[5].user, /selected-example/);
-  assert.match(replay[5].user, /第 1 页/);
+  assert.match(replay[7].user, /selected-example/);
+  assert.match(replay[7].user, /第 1 页/);
 });
 
 test('rebuild after a selection-only question retains earlier original pages and updates duplicate pages', async t => {
@@ -268,8 +269,10 @@ test('rebuild after a selection-only question retains earlier original pages and
   assert.equal(history(f).length, 3);
 });
 
-test('accumulated original text stays within 400k characters and retains current and recently used pages', async t => {
-  const f = fixture(t);
+test('large explicit context budgets retain cached original pages within the source cache limit', async t => {
+  // A deliberately large configured window tests cache replacement separately
+  // from the default small-window excerpt budgeting covered in history tests.
+  const f = fixture(t, { contextBudget: { contextWindow: 1000000 } });
   const paper = { id: 'paper', pageCount: 3, pages: [
     { number: 1, text: 'a'.repeat(200000) },
     { number: 2, text: 'b'.repeat(200000) },
@@ -338,11 +341,11 @@ test('failed turns are excluded from replay and reset clears both thread and his
   assert.match(turnText(f), /unique-paper-source/);
 });
 
-test('/status reports API v4 and local authorization still rejects untrusted requests', async t => {
+test('/status reports API v5 and local authorization still rejects untrusted requests', async t => {
   const f = fixture(t);
   const result = await f.request('GET', '/status');
-  assert.equal(result.body.apiVersion, 4);
-  assert.equal(result.body.version, '0.5.2');
+  assert.equal(result.body.apiVersion, 5);
+  assert.equal(result.body.version, '0.6.0');
   assert.equal(result.body.billing, 'chatgpt');
   for (const headers of [{ origin: 'https://example.test' }, { authorization: 'Bearer wrong' }, { host: 'localhost:19327' }]) {
     assert.equal((await f.request('POST', '/settings', { customPrompt: 'blocked' }, headers)).status, 403);
@@ -412,7 +415,7 @@ test('CLI failure status is HTTP200 and API settings remain reachable without ch
   assert.equal((await f.request('GET', '/settings')).status, 200);
 });
 
-test('external /ask works without CLI, uses stored key and replays six completed turns with full sources', async t => {
+test('external /ask works without CLI, uses stored key and replays every completed turn fitting budget with sources', async t => {
   const mock = await mockExternal(t);
   const f = fixture(t, { provider: 'external', external: mock.external, customPrompt: 'shared-system-style' }, { offline: true });
   const current = (await f.request('GET', '/settings')).body.current;
@@ -433,14 +436,14 @@ test('external /ask works without CLI, uses stored key and replays six completed
   assert.match(last.messages[1].content, /unique-paper-source/);
   assert.match(last.messages[1].content, /second-page-source|selected-text|PDF 第 2 页/);
   const replay = JSON.parse(last.messages[1].content.match(/<untrusted_history>\n([\s\S]*?)\n<\/untrusted_history>/)[1]);
-  assert.equal(replay.length, 6);
-  assert.match(replay[0].user, /question-2/);
+  assert.equal(replay.length, 7);
+  assert.match(replay[0].user, /question-1/);
   assert.equal(replay.at(-1).assistant, 'external-answer-7');
   assert.equal((await f.request('GET', '/settings')).body.current.external.hasApiKey, true);
   assert.equal(JSON.parse(readFileSync(f.configFile)).external.apiKey, 'stored-test-key');
 });
 
-test('switching providers releases the old thread and isolates source cache and history in both directions', async t => {
+test('switching providers releases the old thread while retaining transcript and source evidence', async t => {
   const mock = await mockExternal(t);
   const f = fixture(t, { external: mock.external });
   const paper = (number, text) => ({ id: 'paper', pageCount: 3, pages: [{ number, text }] });
@@ -450,12 +453,16 @@ test('switching providers releases the old thread and isolates source cache and 
   assert.deepEqual(rpc(f, 'thread/unsubscribe'), [{ threadId: 'thread-1' }]);
   const externalPrompt = mock.requests[0].messages[1].content;
   assert.match(externalPrompt, /external-only-source/);
-  assert.doesNotMatch(externalPrompt, /codex-only-source|codex-question|untrusted_history/);
+  assert.match(externalPrompt, /codex-only-source/);
+  assert.match(externalPrompt, /codex-question/);
+  assert.match(externalPrompt, /untrusted_history/);
   await f.request('POST', '/settings', { provider: 'codex' });
   await f.ask(paperRequest('codex-return', { paper: paper(3, 'fresh-codex-source') }));
   assert.equal(rpc(f, 'thread/start').length, 2);
   assert.match(turnText(f), /fresh-codex-source/);
-  assert.doesNotMatch(turnText(f), /external-only-source|codex-only-source|untrusted_history/);
+  assert.match(turnText(f), /external-only-source/);
+  assert.match(turnText(f), /codex-only-source/);
+  assert.equal(history(f).length, 2);
 });
 
 test('provider-only external save accepts an empty draft; /ask validates completeness and hasApiKey cannot create a key', async t => {

@@ -12,6 +12,8 @@ var PaperChatSelection;
 var PaperChatAppearance;
 var PaperChatAPISettings;
 var PaperChatInteraction;
+var PaperChatConversations;
+var PaperChatResize;
 
 function install() {}
 function uninstall() {}
@@ -33,6 +35,8 @@ async function startup({ rootURI }) {
   Services.scriptloader.loadSubScript(rootURI + 'appearance.js', this);
   Services.scriptloader.loadSubScript(rootURI + 'api-settings.js', this);
   Services.scriptloader.loadSubScript(rootURI + 'interaction.js', this);
+  Services.scriptloader.loadSubScript(rootURI + 'conversations.js', this);
+  Services.scriptloader.loadSubScript(rootURI + 'resize.js', this);
   Services.scriptloader.loadSubScript(rootURI + 'panel.js', this);
   await PaperChat.start();
 }
