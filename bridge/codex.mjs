@@ -65,7 +65,7 @@ export class CodexClient extends EventEmitter {
       catch (error) { this.emit('diagnostic', error.message); }
     });
     await this.call('initialize', {
-      clientInfo: { name: 'zotero_paper_chat', title: 'Zotero Paper Chat', version: '0.6.0' },
+      clientInfo: { name: 'zotero_paper_chat', title: 'Zotero Paper Chat', version: '0.6.1' },
     });
     this.send({ method: 'initialized', params: {} });
     const { account } = await this.call('account/read', { refreshToken: false });

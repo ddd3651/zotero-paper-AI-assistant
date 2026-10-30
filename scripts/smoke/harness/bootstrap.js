@@ -51,6 +51,16 @@ async function run(root) {
     await reader._initPromise;
     let panel = await check('Real PDF reader mounted product panel', () => reader._iframe.ownerDocument.querySelector('.paper-chat-panel'));
     await check('Plugin auto-started real bridge and discovered mock CLI', () => !panel.querySelector('.pc-model-trigger').disabled && panel.querySelector('.pc-model-trigger').textContent.includes('smoke-mock'));
+    await check('Resize edge overrides native button limits and is hit-testable along the panel', () => {
+      const handle = panel.querySelector('.pc-resize-panel');
+      if (!handle) return false;
+      const rect = handle.getBoundingClientRect(), bounds = panel.getBoundingClientRect();
+      const style = handle.ownerDocument.defaultView.getComputedStyle(handle);
+      return rect.width >= 6 && rect.height >= bounds.height * .95
+        && style.maxHeight === 'none' && style.cursor === 'col-resize'
+        && [.2, .5, .8].every(fraction => handle.ownerDocument.elementFromPoint(
+          rect.x + rect.width / 2, rect.y + rect.height * fraction) === handle);
+    });
     reader.close();
     await check('Reader closes without leaving a live PDF tab', () => !Zotero.Reader._readers.includes(reader));
     reader = await Zotero.Reader.open(item.id);

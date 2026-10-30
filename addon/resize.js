@@ -15,11 +15,14 @@ var PaperChatResize = (() => {
     handle.type = 'button'; handle.className = 'pc-resize-panel';
     handle.setAttribute('aria-label', PaperChatText.t('appearance.resizePanel'));
     const style = doc.createElementNS('http://www.w3.org/1999/xhtml', 'style');
+    // Zotero's global button max-height otherwise caps this full-height edge at 25px.
     style.textContent = `.paper-chat-panel > .pc-resize-panel {
-      position:absolute!important;top:0!important;bottom:0!important;width:6px!important;
-      height:100%!important;min-width:0!important;min-height:0!important;margin:0!important;
+      position:absolute!important;top:0!important;bottom:0!important;width:8px!important;
+      height:100%!important;max-height:none!important;max-width:none!important;
+      min-width:0!important;min-height:0!important;margin:0!important;
       padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;
-      cursor:col-resize!important;touch-action:none;user-select:none;z-index:20;
+      appearance:none!important;cursor:col-resize!important;pointer-events:auto!important;
+      touch-action:none;user-select:none;z-index:20;
       -moz-window-dragging:no-drag;
     }
     .paper-chat-panel > .pc-resize-panel:focus-visible {outline:2px solid Highlight;outline-offset:-2px}`;

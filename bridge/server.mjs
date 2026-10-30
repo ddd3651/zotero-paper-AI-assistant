@@ -292,7 +292,7 @@ export function createBridge({ config, codex, configFile, historyDir }) {
           codexError: startupError ? redactError({ message: startupError }, [config.external?.apiKey]) : null,
           settingsAvailable: true, codexConnecting, current: settings,
           ok: settings.provider === 'external' || (!codexConnecting && !startupError), account: codex.account, model: settings?.model, effort: settings?.effort, error: settings.provider === 'codex' ? redactError({ message: startupError || '' }, [config.external?.apiKey]) || null : null,
-          version: '0.6.0', apiVersion: 5, provider: settings.provider, billing: settings.provider === 'external' ? 'external' : 'chatgpt',
+          version: '0.6.1', apiVersion: 5, provider: settings.provider, billing: settings.provider === 'external' ? 'external' : 'chatgpt',
         });
       }
       if (path === '/settings' && ['GET', 'POST'].includes(req.method)) {
