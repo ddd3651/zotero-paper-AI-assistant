@@ -46,6 +46,11 @@ function fixture(saved = {}, broken = false) {
       prefs[key] = value;
     },
   } } });
+  // New text keys are owned by the parent integration; keep this test independent.
+  Object.assign(scope.PaperChatText.data.appearance, {
+    chatFont: '对话字号', systemFont: '系统字号',
+    chatFontSlider: '对话字号滑块', systemFontSlider: '系统字号滑块',
+  });
   vm.runInContext(source, scope);
   const api = scope.PaperChatAppearance, plugin = { states: new Map() };
   const doc = { createElementNS: (_, tag) => new Element(tag, doc) };
@@ -70,18 +75,23 @@ test('mount defaults, compact controls, scoped styles and repeated mount are sta
   assert.equal(p.state.panel.style['--pc-font-size'], '13px');
   assert.equal(p.state.panel.style.order, '1');
   assert.equal(p.ui.sideButton.textContent, '移到左侧');
-  assert.equal(p.title.children.at(-2), p.ui.sideButton);
+  assert.equal(p.title.children.length, 2);
+  assert.equal(p.head.children.length, 1);
+  assert.equal(p.ui.row.parent, undefined);
+  assert.equal(p.ui.row.children.length, 3);
+  assert.equal(p.ui.row.children[2].children[0], p.ui.sideButton);
+  assert.equal(p.ui.row.children[2].children[1], p.ui.zoomButton);
   assert.equal(p.title.lastElementChild, p.close);
   assert.equal(p.ui.fontInput.type, 'number'); assert.equal(p.ui.fontRange.type, 'range');
-  assert.equal(p.ui.fontInput.attrs['aria-label'], '插件字号');
-  assert.equal(p.ui.fontRange.attrs['aria-label'], '插件字号滑块');
+  assert.equal(p.ui.fontInput.attrs['aria-label'], '对话字号');
+  assert.equal(p.ui.fontRange.attrs['aria-label'], '对话字号滑块');
   assert.equal(p.ui.fontInput.min, '11'); assert.equal(p.ui.fontInput.max, '24');
   assert.equal(p.ui.fontInput.step, '1');
   assert.equal(f.api.mount(f.plugin, p.state, p), p.ui);
   assert.equal(p.state.panel.children.filter(node => node.tag === 'style').length, 1);
   for (const selector of ['.pc-title', '.pc-message', '.pc-markdown table', '.pc-cite', '.pc-prompt-input', '.pc-settings-menu label'])
     assert.ok(p.ui.style.textContent.includes(selector));
-  assert.match(p.ui.style.textContent, /font-size:calc\(var\(--pc-font-size\)/);
+  assert.match(p.ui.style.textContent, /font-size:calc\(var\(--pc-chat-font-size\)/);
   assert.ok(p.ui.row.fire('keydown').stopped); assert.ok(p.ui.sideButton.fire('keydown').stopped);
 });
 
@@ -92,7 +102,8 @@ test('number and slider sync immediately across all panels, retaining rendered a
   input(a.ui.fontInput, '19');
   for (const p of [a, b]) {
     assert.equal(p.ui.fontInput.value, '19'); assert.equal(p.ui.fontRange.value, '19');
-    assert.equal(p.state.panel.style.fontSize, '19px');
+    assert.equal(p.state.panel.style['--pc-chat-font-size'], '19px');
+    assert.equal(p.state.panel.style.fontSize, '13px');
   }
   assert.equal(a.state.log.scrollTop, 157); assert.equal(a.state.log.scrollLeft, 19);
   assert.equal(a.state.log.children[0], answer); assert.equal(answer.scrollTop, 8);
@@ -106,7 +117,7 @@ test('unfinished/invalid numbers remain editable, then blur/change correct and c
   input(p.ui.fontInput, '17');
   for (const value of ['', '-', 'abc', 'NaN', 'Infinity']) {
     input(p.ui.fontInput, value); assert.equal(p.ui.fontInput.value, value);
-    assert.equal(p.state.panel.style.fontSize, '17px');
+    assert.equal(p.state.panel.style['--pc-chat-font-size'], '17px');
     p.ui.fontInput.fire('blur'); assert.equal(p.ui.fontInput.value, '17');
   }
   for (const [value, expected] of [['2', '11'], ['999', '24'], ['15.6', '16']]) {
@@ -165,7 +176,7 @@ test('preferences tolerate exceptions and corrupt values; valid saved settings a
     assert.equal(p.state.panel.style.order, '1');
   }
   const f = fixture({}, true), p = f.panel();
-  input(p.ui.fontRange, '21'); assert.equal(p.state.panel.style.fontSize, '21px');
+  input(p.ui.fontRange, '21'); assert.equal(p.state.panel.style['--pc-chat-font-size'], '21px');
   const saved = fixture({ [key('fontSize')]: '18.7', [key('side')]: 'left', [key('uiZoom')]: '1.25' }).panel();
   assert.equal(saved.ui.fontInput.value, '19'); assert.equal(saved.state.panel.style.zoom, '1.25');
 });
@@ -220,5 +231,103 @@ test('cleanup and stop release every listener, allow remount and skip disposed s
   f.api.stop(f.plugin); assert.equal(b.state.panel.events.size, 0);
   assert.equal(b.state.panel.children.filter(node => node.tag === 'style').length, 0);
   const ui = f.api.mount(f.plugin, b.state, b); assert.equal(ui.fontInput.value, '20');
+  f.api.stop(f.plugin);
+});
+
+
+test('legacy font migrates both values once; subsequent edits persist independently across restarts', () => {
+  const f = fixture({ [key('fontSize')]: 22 }), a = f.panel(), b = f.panel();
+  for (const name of ['chatFontSize', 'systemFontSize']) assert.equal(f.prefs[key(name)], 22);
+  input(a.ui.fontRange, '24');
+  assert.equal(b.ui.systemInput.value, '22');
+  assert.equal(f.prefs[key('systemFontSize')], 22);
+  assert.equal(f.prefs[key('fontSize')], 24);
+  input(b.ui.systemRange, '11');
+  assert.equal(a.ui.fontInput.value, '24'); assert.equal(a.ui.systemInput.value, '11');
+  assert.equal(a.state.panel.style.fontSize, '11px');
+  assert.equal(a.state.panel.style['--pc-chat-font-size'], '24px');
+  assert.equal(a.state.panel.style['--pc-system-font-size'], '11px');
+  assert.equal(a.state.panel.style['--pc-font-size'], '24px');
+  const saved = fixture(f.prefs).panel();
+  assert.equal(saved.ui.fontInput.value, '24'); assert.equal(saved.ui.systemInput.value, '11');
+});
+
+test('split preferences take priority; missing or corrupt half migrates from legacy', () => {
+  for (const [chat, system, expectedChat, expectedSystem] of [
+    [18, 12, 18, 12], [18, undefined, 18, 21], [undefined, 12, 21, 12],
+    ['bad', false, 21, 21], ['99', '-5', 24, 11],
+  ]) {
+    const f = fixture({ [key('fontSize')]: 21, [key('chatFontSize')]: chat, [key('systemFontSize')]: system });
+    const p = f.panel();
+    assert.equal(p.ui.fontInput.value, String(expectedChat));
+    assert.equal(p.ui.systemInput.value, String(expectedSystem));
+    const saved = fixture(f.prefs).panel();
+    assert.equal(saved.ui.fontInput.value, String(expectedChat));
+    assert.equal(saved.ui.systemInput.value, String(expectedSystem));
+  }
+});
+
+test('fontSize remains a chat-only alias; explicit chatFontSize wins and invalid patches preserve values', () => {
+  const f = fixture(), p = f.panel();
+  f.api.set(f.plugin, { systemFontSize: 16, fontSize: 20 });
+  let state = f.api.state(f.plugin);
+  assert.equal(state.fontSize, 20); assert.equal(state.chatFontSize, 20); assert.equal(state.systemFontSize, 16);
+  f.api.set(f.plugin, { fontSize: 18, chatFontSize: 23 });
+  assert.equal(p.ui.fontInput.value, '23'); assert.equal(p.ui.systemInput.value, '16');
+  assert.equal(f.prefs[key('fontSize')], 23);
+  for (const value of [null, undefined, '', false, {}, Infinity, 'bad']) {
+    f.api.set(f.plugin, { chatFontSize: value, systemFontSize: value });
+    assert.equal(p.ui.fontInput.value, '23'); assert.equal(p.ui.systemInput.value, '16');
+  }
+});
+
+test('system numeric input and slider support 11–24, partial edits, rounding and clamping', () => {
+  const f = fixture(), p = f.panel();
+  assert.equal(p.ui.systemInput.attrs['aria-label'], '系统字号');
+  assert.equal(p.ui.systemRange.attrs['aria-label'], '系统字号滑块');
+  for (const control of [p.ui.systemInput, p.ui.systemRange]) {
+    assert.equal(control.min, '11'); assert.equal(control.max, '24'); assert.equal(control.step, '1');
+  }
+  input(p.ui.systemInput, '20');
+  for (const value of ['', '-', 'abc', 'Infinity']) {
+    input(p.ui.systemInput, value); assert.equal(p.ui.systemInput.value, value);
+    assert.equal(p.state.panel.style.fontSize, '20px');
+    p.ui.systemInput.fire('blur'); assert.equal(p.ui.systemInput.value, '20');
+  }
+  for (const [value, expected] of [['2', '11'], ['999', '24'], ['15.6', '16']]) {
+    input(p.ui.systemInput, value); p.ui.systemInput.fire('change');
+    assert.equal(p.ui.systemInput.value, expected); assert.equal(p.ui.systemRange.value, expected);
+  }
+  input(p.ui.systemRange, '24', 'change');
+  assert.equal(p.ui.systemInput.value, '24'); assert.equal(p.ui.fontInput.value, '13');
+  assert.equal(f.prefs[key('systemFontSize')], 24);
+});
+
+test('system and chat CSS use explicit independent variables; text controls grow without sizing panels or textareas', () => {
+  const p = fixture().panel(), css = p.ui.style.textContent;
+  const sizeRule = selector => css.split('\n').find(rule => rule.includes(' ' + selector + '{')
+    || rule.includes(' ' + selector + ','));
+  for (const selector of ['.pc-message', '.pc-markdown', '.pc-plain', '.pc-compose>textarea:not(.pc-prompt-input)', '.pc-selection-text', '.pc-markdown h1', '.pc-markdown table', '.pc-markdown .pc-cite'])
+    assert.ok(sizeRule(selector).includes('var(--pc-chat-font-size)'), selector);
+  for (const selector of ['button', 'select', 'input', '.pc-title', '.pc-status', '.pc-role', '.pc-prompt-input', '.pc-settings-menu label', '.pc-activity', '.pc-drawer'])
+    assert.ok(sizeRule(selector).includes('var(--pc-system-font-size)'), selector);
+  assert.match(css, /height:auto!important;max-height:none!important;min-height:calc/);
+  assert.doesNotMatch(css, /(?:textarea|\.pc-message|\.pc-compose|\.pc-log|\.paper-chat-panel)\{[^}]*min-height/);
+});
+
+test('side, pinch, reset, cleanup and remount preserve both independent font settings', () => {
+  const f = fixture(), a = f.panel(), b = f.panel();
+  input(a.ui.fontInput, '24'); input(b.ui.systemInput, '11');
+  a.ui.sideButton.fire('click'); a.state.panel.fire('wheel', { ctrlKey: true, deltaY: -50 });
+  a.ui.zoomButton.fire('click');
+  for (const p of [a, b]) {
+    assert.equal(p.ui.fontInput.value, '24'); assert.equal(p.ui.systemInput.value, '11');
+    assert.equal(p.state.panel.style.order, '-1'); assert.equal(p.state.panel.style.zoom, '1');
+  }
+  f.api.cleanup(a.state);
+  for (const control of [a.ui.fontInput, a.ui.fontRange, a.ui.systemInput, a.ui.systemRange, a.ui.sideButton, a.ui.zoomButton])
+    assert.equal(control.events.size, 0);
+  const ui = f.api.mount(f.plugin, a.state);
+  assert.equal(ui.fontInput.value, '24'); assert.equal(ui.systemInput.value, '11');
   f.api.stop(f.plugin);
 });

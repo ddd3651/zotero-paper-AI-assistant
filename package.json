@@ -1,6 +1,6 @@
 {
   "name": "zotero-paper-chat",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "private": true,
   "description": "在 Zotero 里边读论文边问 AI，支持 Codex 登录和外部模型 API",
   "engines": {

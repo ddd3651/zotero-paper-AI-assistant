@@ -150,8 +150,12 @@ var PaperChat = {
       .paper-chat-panel .pc-actions{display:flex;align-items:center;gap:8px}
       .paper-chat-panel .pc-model-row{position:relative;min-width:0}
       .paper-chat-panel .pc-model-trigger{width:100%;text-align:left;font-size:12px;overflow:hidden;text-overflow:ellipsis;background:transparent}
-      .paper-chat-panel .pc-settings-menu{position:absolute;bottom:calc(100% + 8px);left:0;right:0;z-index:30;padding:12px;display:grid;gap:10px;border:1px solid #bfc9d4;border-radius:10px;background:var(--material-background,#fff);box-shadow:0 5px 20px #0002;max-height:70vh;overflow-y:auto}
+      .paper-chat-panel .pc-settings-menu{position:absolute;bottom:calc(100% + 8px);left:0;right:0;z-index:30;padding:14px;display:grid;gap:12px;border:1px solid #bfc9d4;border-radius:10px;background:var(--material-background,#fff);max-height:70vh;overflow-y:auto}
       .paper-chat-panel .pc-settings-menu[hidden]{display:none!important}
+      .paper-chat-panel .pc-settings-tabs{display:flex;flex-wrap:wrap;gap:6px;padding-bottom:8px;border-bottom:1px solid color-mix(in srgb,currentColor 12%,transparent)}
+      .paper-chat-panel .pc-settings-tabs button{border:0;background:transparent;padding:5px 8px;height:auto;max-height:none}
+      .paper-chat-panel .pc-settings-tabs button[aria-selected=true]{background:color-mix(in srgb,currentColor 7%,transparent)}
+      .paper-chat-panel .pc-settings-section{display:grid;gap:10px;min-width:0}
       .paper-chat-panel .pc-settings-title{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;font-weight:600}
       .paper-chat-panel .pc-settings-title button{font-size:11px;padding:3px 8px;min-height:26px}
       .paper-chat-panel .pc-settings-menu label{display:grid;gap:5px;font-size:12px}
@@ -165,7 +169,7 @@ var PaperChat = {
       .paper-chat-panel .pc-selection-text{max-height:76px;overflow:auto;white-space:pre-wrap;user-select:text}
       .paper-chat-panel .pc-prompt-input{min-height:128px;max-height:230px;font-size:12px}
       .paper-chat-panel .pc-prompt-status{font-size:11px;min-height:16px;line-height:1.4;opacity:.75}
-      .paper-chat-panel .pc-send{background:#1967c8;color:white;border-color:#1967c8}
+      .paper-chat-panel .pc-icon.pc-send{background:var(--fill-primary,#202124);color:var(--material-background,#fafafa);border:0;border-radius:50%;width:28px;min-width:28px}
       .paper-chat-panel .pc-hint{font-size:10.5px;line-height:1.4;opacity:.65;text-align:right}
       .paper-chat-panel .pc-error{color:#b33d2d;white-space:pre-wrap;font-size:12px;line-height:1.5}
       .paper-chat-panel .pc-error:empty{display:none}
@@ -206,10 +210,11 @@ var PaperChat = {
     input.setAttribute('aria-label', PaperChatText.t("common.askAI"));
     const bottom = this.el(doc, 'div', null, 'pc-bottom');
     const modelRow = this.el(doc, 'div', null, 'pc-model-row');
-    const modelButton = this.el(doc, 'button', PaperChatText.t("panel.text04"), 'pc-model-trigger');
-    modelButton.setAttribute('aria-label', PaperChatText.t("panel.text05"));
-    modelButton.setAttribute('aria-expanded', 'false');
-    modelButton.disabled = true;
+    const modelButton = this.el(doc, 'div', PaperChatText.t("panel.text04"), 'pc-model-trigger');
+    modelButton.setAttribute('aria-label', PaperChatText.t('settings.currentModel'));
+    const settingsButton = PaperChatConversations.icon(this, doc, 'settings.open', 'settings');
+    settingsButton.className += ' pc-settings-trigger';
+    settingsButton.setAttribute('aria-expanded', 'false');
     const settingsMenu = this.el(doc, 'div', null, 'pc-settings-menu');
     settingsMenu.hidden = true;
     const settingsTitle = this.el(doc, 'div', null, 'pc-settings-title');
@@ -229,12 +234,45 @@ var PaperChat = {
     promptLabel.append(promptInput);
     const promptSave = this.el(doc, 'button', PaperChatText.t("settings.savePrompt"));
     const promptStatus = this.el(doc, 'div', '', 'pc-prompt-status');
-    settingsMenu.append(settingsTitle, modelLabel, effortLabel, promptLabel, promptSave, promptStatus,
+    const settingsTabs = this.el(doc, 'div', null, 'pc-settings-tabs');
+    settingsTabs.setAttribute('role', 'tablist'); settingsTabs.setAttribute('aria-label', PaperChatText.t('settings.categories'));
+    const settingsGroups = {};
+    const tabPrefix = 'paper-chat-settings-' + (this.settingsSerial = (this.settingsSerial || 0) + 1);
+    const tabLabels = [PaperChatText.t('settings.tabAppearance'), PaperChatText.t('settings.tabModel'), PaperChatText.t('settings.tabPrompt')];
+    const tabItems = ['appearance', 'model', 'prompt'].map((kind, index) => {
+      const tab = this.el(doc, 'button', tabLabels[index]);
+      const group = this.el(doc, 'div', null, 'pc-settings-section'); group.hidden = index !== 0;
+      tab.type = 'button'; tab.id = tabPrefix + '-' + kind; group.id = tab.id + '-panel';
+      tab.setAttribute('role', 'tab'); tab.setAttribute('aria-selected', String(index === 0));
+      tab.setAttribute('aria-controls', group.id); tab.tabIndex = index === 0 ? 0 : -1;
+      group.setAttribute('role', 'tabpanel'); group.setAttribute('aria-labelledby', tab.id);
+      settingsTabs.append(tab); settingsGroups[kind] = group;
+      return { tab, group };
+    });
+    const activateTab = target => {
+      for (const item of tabItems) {
+        item.tab.setAttribute('aria-selected', String(item === target));
+        item.tab.tabIndex = item === target ? 0 : -1; item.group.hidden = item !== target;
+      }
+    };
+    tabItems.forEach((item, index) => {
+      item.tab.addEventListener('click', () => activateTab(item));
+      item.tab.addEventListener('keydown', event => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+        event.preventDefault(); event.stopPropagation();
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabItems.length - 1
+          : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabItems.length) % tabItems.length;
+        activateTab(tabItems[next]); tabItems[next].tab.focus();
+      });
+    });
+    settingsGroups.model.append(modelLabel, effortLabel);
+    settingsGroups.prompt.append(promptLabel, promptSave, promptStatus,
       this.el(doc, 'div', PaperChatText.t("panel.text07"), 'pc-settings-help'));
-    modelRow.append(modelButton, settingsMenu);
+    settingsMenu.append(settingsTitle, settingsTabs, ...tabItems.map(item => item.group));
+    modelRow.append(modelButton);
     const clear = this.el(doc, 'button', PaperChatText.t("history.clearCurrent"));
     clear.title = PaperChatText.t("panel.text08");
-    const send = this.el(doc, 'button', PaperChatText.t("common.send"), 'pc-send');
+    const send = PaperChatConversations.icon(this, doc, 'common.send', 'send'); send.className += ' pc-send';
     const cancel = this.el(doc, 'button', PaperChatText.t("common.stop")); cancel.hidden = true;
     const hint = this.el(doc, 'div', Zotero.isMac ? PaperChatText.t("panel.text09") : PaperChatText.t("panel.text10"), 'pc-hint');
     const actions = this.el(doc, 'div', null, 'pc-actions');
@@ -244,24 +282,24 @@ var PaperChat = {
     leftActions.append(clear);
     bottom.append(leftActions, actions);
     compose.append(selectionCard, input, modelRow, bottom, hint, error);
-    panel.append(head, log, compose);
+    panel.append(head, log, compose, settingsMenu);
     parent.append(panel);
     const item = reader._item;
     const state = { reader, panel, status, log, input, send, cancel, reset, clear, error,
       selectionCard, selectionLabel, selectionText, selectedExcerpt: null,
       promptInput, promptSave, promptStatus, promptDirty: false,
-      modelButton, modelSelect, effortSelect, settingsMenu, settingsReady: false, settingsSaving: false,
+      modelButton, settingsButton, modelSelect, effortSelect, settingsMenu, settingsReady: false, settingsSaving: false,
       busy: false, jobId: null, pageCache: new Map(), rawPageCache: new Map(), sections: [], pageCount: 0, allowedPages: new Set(), messages: [],
       paperId: `${item.libraryID}/${item.key}`, paperTitle: reader._title || item.getField('title'),
       oldParentStyle, oldReaderStyle, parent, disposed: false };
     this.states.set(reader, state);
     const appearance = PaperChatAppearance.mount(this, state, { head, title });
-    settingsMenu.append(appearance.row, appearance.sideButton);
+    settingsGroups.appearance.append(appearance.row);
     PaperChatConversations.mount(this, state, { head, title, history, welcome });
     PaperChatResize.mount(this, state);
     state.resizeCleanup = () => PaperChatResize.cleanup(state);
     state.appearanceCleanup = () => PaperChatAppearance.cleanup(state);
-    state.apiSettings = PaperChatAPISettings.mount(this, state, { settingsMenu, modelLabel, effortLabel });
+    state.apiSettings = PaperChatAPISettings.mount(this, state, { settingsMenu: settingsGroups.model, modelLabel, effortLabel });
     PaperChatInteraction.mount(this, state, head);
     PaperChatReader.bindHighlight(state);
     PaperChatReader.loadOutline(state).then(async () => {
@@ -280,16 +318,20 @@ var PaperChat = {
     promptInput.addEventListener('keydown', e => e.stopPropagation());
     promptInput.addEventListener('keyup', e => e.stopPropagation());
     promptSave.addEventListener('click', () => { state.settingsPromise = this.saveSettings(state, { customPrompt: promptInput.value }); });
-    const closeSettings = () => { settingsMenu.hidden = true; modelButton.setAttribute('aria-expanded', 'false'); };
-    modelButton.addEventListener('click', () => {
+    const closeSettings = () => { settingsMenu.hidden = true; settingsButton.setAttribute('aria-expanded', 'false'); };
+    settingsButton.addEventListener('click', () => {
       settingsMenu.hidden = !settingsMenu.hidden;
-      modelButton.setAttribute('aria-expanded', String(!settingsMenu.hidden));
-      if (!settingsMenu.hidden) (state.selectedSettings?.provider === 'external' ? state.apiSettings.provider : state.modelSelect.options.length ? modelSelect : state.apiSettings.provider).focus();
+      settingsButton.setAttribute('aria-expanded', String(!settingsMenu.hidden));
+      if (!settingsMenu.hidden) tabItems.find(item => !item.group.hidden)?.tab.focus();
       if (!settingsMenu.hidden) this.api('/settings').then(data => this.applySettings(data)).catch(error => { state.error.textContent = error.message; });
     });
-    settingsClose.addEventListener('click', closeSettings);
-    panel.addEventListener('keydown', event => { if (event.key === 'Escape') closeSettings(); });
-    panel.addEventListener('click', event => { if (!modelRow.contains(event.target)) closeSettings(); });
+    settingsClose.addEventListener('click', () => { closeSettings(); settingsButton.focus(); });
+    panel.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !settingsMenu.hidden) {
+        event.preventDefault(); event.stopPropagation(); closeSettings(); settingsButton.focus();
+      }
+    }, true);
+    panel.addEventListener('click', event => { if (!settingsMenu.contains(event.target) && !settingsButton.contains(event.target)) closeSettings(); });
     modelSelect.addEventListener('change', () => {
       this.populateEfforts(state, modelSelect.value);
       state.settingsPromise = this.saveSettings(state, { model: modelSelect.value, effort: effortSelect.value });
@@ -356,7 +398,7 @@ var PaperChat = {
     this.starting = (async () => {
       try {
         const info = await this.api('/status');
-        if (info.apiVersion === 5 && info.version === '0.6.2') return info;
+        if (info.apiVersion === 5 && info.version === '0.6.3') return info;
         await this.api('/shutdown', 'POST', {});
         await Zotero.Promise.delay(700);
       }
@@ -417,8 +459,8 @@ var PaperChat = {
         this.populateEfforts(state, data.current.model, data.current.effort);
         const model = state.models.find(m => m.id === data.current.model);
         const external = data.current.provider === 'external';
-        state.modelButton.textContent = external ? `${data.current.external?.model || PaperChatText.t("panel.text16")} · API ▾`
-          : `${model?.name || data.current.model || PaperChatText.t("common.codex")} · ${this.effortLabel(data.current.effort)}${data.current.webSearch ? PaperChatText.t("panel.text17") : ''} ▾`;
+        state.modelButton.textContent = external ? `${data.current.external?.model || PaperChatText.t("panel.text16")} · API`
+          : `${model?.name || data.current.model || PaperChatText.t("common.codex")} · ${this.effortLabel(data.current.effort)}${data.current.webSearch ? PaperChatText.t("panel.text17") : ''}`;
         state.modelButton.title = external ? PaperChatText.t("panel.text18") : PaperChatText.t("panel.format03", {value1: (model?.id || PaperChatText.t("common.codex")), value2: (this.effortLabel(data.current.effort))});
         PaperChatAPISettings.apply(state, data);
         state.settingsReady = true;
@@ -562,7 +604,7 @@ var PaperChat = {
       return;
     }
     node._pcPendingRender = null;
-    if (node._paperChatEntry?.role === 'user') node.textContent = text;
+    if (node._paperChatEntry?.role === 'user') node.textContent = String(text).trim();
     else node.replaceChildren(PaperChatMarkdown.render(node.ownerDocument, text, {
       pageCount: state.pageCount, allowedPages: state.allowedPages,
       describeCitation: (page, details) => PaperChatReader.describeCitation(state, page, details),
@@ -579,7 +621,7 @@ var PaperChat = {
     state.cancel.hidden = !busy && !state.compacting;
     for (const control of [state.modelButton, state.modelSelect, state.effortSelect, state.promptSave, state.promptInput]) control.disabled = busy || state.settingsSaving || !state.settingsReady;
     PaperChatAPISettings.setBusy(state, busy || state.settingsSaving || !state.settingsReady);
-    if (busy) { state.settingsMenu.hidden = true; state.modelButton.setAttribute('aria-expanded', 'false'); }
+    if (busy) { state.settingsMenu.hidden = true; state.settingsButton.setAttribute('aria-expanded', 'false'); }
   },
 
   async ask(state) {

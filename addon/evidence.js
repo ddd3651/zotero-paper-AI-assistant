@@ -83,21 +83,27 @@ var PaperChatEvidence = (() => {
     // Quotes need at least eight non-whitespace code points and cannot cut through words.
     // rects are adjacent glyph bounds merged within one line and rotation, in PDF coordinates.
     matchQuote(charsOrData, quote) {
+      const matches = this.findQuotes(charsOrData, quote);
+      return matches.length === 1 ? matches[0] : null;
+    },
+    // All full, contiguous matches on this page, including normalized duplicates.
+    // Callers must show every match or verify a narrower scope, never silently take [0].
+    findQuotes(charsOrData, quote) {
       const chars = Array.isArray(charsOrData) ? charsOrData : charsOrData?.chars;
-      if (!Array.isArray(chars) || typeof quote !== 'string' || !quote.length || quote.length > 1500) return null;
+      if (!Array.isArray(chars) || typeof quote !== 'string' || !quote.length || quote.length > 1500) return [];
       const needle = normalize(unitsFor(quote, 0)).text;
       const points = Array.from(needle);
-      if (points.filter(value => !/\s/u.test(value)).length < 8) return null;
+      if (points.filter(value => !/\s/u.test(value)).length < 8) return [];
       const units = [];
       for (let index = 0; index < chars.length; index++) {
         const char = chars[index];
-        if (!char || typeof char.u !== 'string') return null;
+        if (!char || typeof char.u !== 'string') return [];
         for (const unit of unitsFor(char.u, index)) units.push(unit);
         const after = char.paragraphBreakAfter ? '\n\n' : char.lineBreakAfter ? '\n' : char.spaceAfter ? ' ' : '';
         for (const unit of unitsFor(after, index)) units.push(unit);
       }
       const source = normalize(units);
-      let found = -1;
+      const matches = [];
       for (let offset = source.text.indexOf(needle); offset !== -1; offset = source.text.indexOf(needle, offset + 1)) {
         const end = offset + needle.length;
         // A match cannot start or end partway through a single expanded ligature or code point.
@@ -106,13 +112,11 @@ var PaperChatEvidence = (() => {
         const before = Array.from(source.text.slice(Math.max(0, offset - 2), offset)).pop();
         const after = end < source.text.length ? String.fromCodePoint(source.text.codePointAt(end)) : '';
         if ((wordChar(before) && wordChar(points[0])) || (wordChar(points[points.length - 1]) && wordChar(after))) continue;
-        if (found !== -1) return null;
-        found = offset;
+        const start = source.indices[offset], finish = source.indices[end - 1] + 1;
+        const rects = rangeRects(chars, start, finish);
+        matches.push(rects.length ? { start, end: finish, rects } : { start, end: finish });
       }
-      if (found === -1) return null;
-      const start = source.indices[found], end = source.indices[found + needle.length - 1] + 1;
-      const rects = rangeRects(chars, start, end);
-      return rects.length ? { start, end, rects } : { start, end };
+      return matches;
     },
   };
 })();

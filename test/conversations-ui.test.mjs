@@ -10,6 +10,7 @@ function fixture(api = async () => ({})) {
     constructor(tag, text = '', className = '') { Object.assign(this, { tag, textContent: text || '', className, ownerDocument: doc, children: [], attrs: {}, events: {}, hidden: false, value: '', dataset: {} }); }
     append(...nodes) { for (const n of nodes) { if (n.parentElement) n.parentElement.children = n.parentElement.children.filter(x => x !== n); n.parentElement = this; this.children.push(n); } }
     before(...nodes) { const p = this.parentElement; const index = p.children.indexOf(this); for (const n of nodes) { if (n.parentElement) n.parentElement.children = n.parentElement.children.filter(x => x !== n); n.parentElement = p; } p.children.splice(index, 0, ...nodes); }
+    remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(n => n !== this); this.parentElement = null; }
     replaceChildren(...nodes) { this.children = []; this.append(...nodes); }
     setAttribute(key, value) { this.attrs[key] = value; }
     removeAttribute(key) { delete this.attrs[key]; }
@@ -19,7 +20,7 @@ function fixture(api = async () => ({})) {
     closest(selector) { if (selector === '[hidden]' && this.hidden) return this; return this.parentElement?.closest(selector) || null; }
     querySelectorAll(selector) {
       return this.children.flatMap(n => {
-        const matches = selector.includes('button') && n.tag === 'button' || selector.includes('input') && n.tag === 'input' || selector.includes('summary') && n.tag === 'summary';
+        const matches = selector.startsWith('.') ? n.className.split(' ').includes(selector.slice(1)) : selector.includes('button') && n.tag === 'button' || selector.includes('input') && n.tag === 'input' || selector.includes('summary') && n.tag === 'summary';
         return [...(matches && (!selector.includes(':not([disabled])') || !n.disabled) ? [n] : []), ...n.querySelectorAll(selector)];
       });
     }
@@ -30,8 +31,13 @@ function fixture(api = async () => ({})) {
   vm.runInContext(readFileSync(new URL('../addon/conversations.js', import.meta.url), 'utf8'), scope);
   const helper = scope.PaperChatConversations;
   const panel = new Element('aside'), head = new Element('header'), title = new Element('div'), history = new Element('button'), status = new Element('div'), log = new Element('main'), compose = new Element('div'), input = new Element('textarea');
-  compose.append(input); head.append(title, status); panel.append(head, log, compose);
-  const state = { panel, input, status, log, reader: { _instanceID: 'reader1' }, pageCount: 12, paperId: '1/ABC', paperTitle: 'Test', error: {}, allowedPages: new Set(), messages: [] };
+  const clear = new Element('button', 'clear'), send = new Element('button', 'send'), hint = new Element('div', 'hint', 'pc-hint');
+  const bottom = new Element('div', '', 'pc-bottom'), left = new Element('div', '', 'pc-actions'), actions = new Element('div', '', 'pc-actions');
+  const settingsButton = new Element('button', '', 'pc-icon'), settingsMenu = new Element('div', '', 'pc-settings-menu');
+  const error = new Element('div', '', 'pc-error');
+  left.append(clear); actions.append(send); bottom.append(left, actions);
+  compose.append(input, bottom, hint, error); head.append(title, status); panel.append(head, log, compose, settingsMenu);
+  const state = { panel, input, status, log, clear, send, settingsButton, settingsMenu, error, reader: { _instanceID: 'reader1' }, pageCount: 12, paperId: '1/ABC', paperTitle: 'Test', allowedPages: new Set(), messages: [] };
   const plugin = { el: (_, tag, text, cls) => new Element(tag, text, cls), api,
     setBusy(state, busy) { state.busy = busy; helper.setBusy(state); }, refreshCitations() {}, removeSelection(state) { state.selectedExcerpt = null; },
     message(state, role, text) { const body = new Element('div'); body._paperChatEntry = { role, text }; state.messages.push(body._paperChatEntry); state.log.append(body); return body; }, applySettings() {} };
@@ -223,4 +229,31 @@ test('unconfirmed compaction remains locked with stop/reconcile until server ter
   assert.equal(f.state.historyBusy, true); assert.equal(f.state.jobId, 'j'); assert.equal(f.state.compacting, true); assert.equal(f.state.conversationsUI.reconcile.hidden, false);
   offline = false; await f.state.conversationsUI.reconcile.fire('click');
   assert.equal(f.state.jobId, null); assert.equal(f.state.historyBusy, false); assert.equal(f.state.compacting, false);
+});
+
+
+test('composer footer places settings gear on left, clear above context, menu outside scrolling compose', () => {
+  const { state } = fixture(), ui = state.conversationsUI;
+  assert.equal(state.inputArea, ui.area); assert.equal(state.compose, ui.compose);
+  assert.equal(state.composerFooter, ui.footer);
+  assert.deepEqual(ui.footer.children, [state.settingsButton, ui.belowClear, state.settingsMenu]);
+  assert.deepEqual(ui.belowClear.children, [state.clear, ui.status]);
+  assert.deepEqual(ui.area.children, [ui.compose, ui.footer, state.status, ui.notice, state.error]);
+  assert.equal(state.settingsMenu.parentElement, ui.footer);
+  assert.equal(state.input.parentElement, ui.compose);
+  const bottom = ui.compose.querySelector('.pc-bottom');
+  assert.equal(bottom.children.length, 2);
+  assert.equal(bottom.children[0].className, 'pc-hint');
+  assert.equal(bottom.children[1], state.send.parentElement);
+  assert.equal(state.clear.className, 'pc-clear');
+});
+
+test('settings and send icons provide actual SVG paths and localized accessible labels', () => {
+  const f = fixture();
+  for (const [kind, key] of [['settings', 'settings.open'], ['send', 'common.send']]) {
+    const button = f.helper.icon(f.plugin, f.doc, key, kind);
+    assert.ok(button.attrs['aria-label']);
+    const path = button.children[0].children[0].attrs.d;
+    assert.ok(path?.length > 10); assert.notEqual(path, 'undefined');
+  }
 });

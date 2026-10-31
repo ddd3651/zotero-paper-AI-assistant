@@ -14,7 +14,13 @@
     "externalModel": "外部模型名称",
     "apiKey": "API key",
     "webSearch": "联网搜索",
-    "title": "模型设置",
+    "title": "设置",
+    "open": "设置",
+    "currentModel": "当前模型",
+    "categories": "设置分类",
+    "tabAppearance": "外观",
+    "tabModel": "模型与接入",
+    "tabPrompt": "提示词",
     "model": "模型",
     "modelAria": "选择Codex模型",
     "effort": "推理强度",
@@ -53,8 +59,13 @@
     "fontLabel": "字号",
     "fontAria": "插件字号",
     "fontSliderAria": "插件字号滑块",
+    "chatFont": "对话字号",
+    "systemFont": "系统字号",
+    "chatFontSlider": "对话字号滑块",
+    "systemFontSlider": "系统字号滑块",
     "resetZoom": "恢复界面缩放至 100%",
     "resizePanel": "拖动调整面板宽度",
+    "resizeComposer": "拖动调整输入区高度，上下方向键微调，Home恢复默认高度",
     "resizePanelKeys": "调整面板宽度，左右方向键微调，Home恢复默认宽度"
   },
   "core": {
@@ -169,7 +180,8 @@
     "format03": "第 {page} 页{value2}",
     "text02": "Codex引用原文",
     "text03": "已跳转到引用页；此条旧引用未附可定位原文。",
-    "text04": "已跳转到引用页；未找到唯一匹配的原句。",
+    "text04": "已跳转到引用页；未匹配到引用原句，请核对原文。",
+    "multipleMatches": "已高亮本页{count}处相同原句 · 点击其他引用或“清空”可移除",
     "text05": "已高亮引用原文 · 点击其他引用或“清空”可移除"
   },
   "selection": {

@@ -345,7 +345,7 @@ test('/status reports API v5 and local authorization still rejects untrusted req
   const f = fixture(t);
   const result = await f.request('GET', '/status');
   assert.equal(result.body.apiVersion, 5);
-  assert.equal(result.body.version, '0.6.2');
+  assert.equal(result.body.version, '0.6.3');
   assert.equal(result.body.billing, 'chatgpt');
   for (const headers of [{ origin: 'https://example.test' }, { authorization: 'Bearer wrong' }, { host: 'localhost:19327' }]) {
     assert.equal((await f.request('POST', '/settings', { customPrompt: 'blocked' }, headers)).status, 403);

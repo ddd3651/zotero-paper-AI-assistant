@@ -121,8 +121,10 @@ async function run(root) {
       const layer = reader._internalReader._primaryView._iframeWindow.document.querySelector('[data-paper-chat-highlight]');
       return layer?.children.length && [...layer.children].some(n => n.getBoundingClientRect().width > 0);
     });
-    await action('click', panel.querySelector('.pc-model-trigger'));
+    await action('click', panel.querySelector('.pc-settings-trigger'));
     await check('Settings panel opens', () => !panel.querySelector('.pc-settings-menu').hidden);
+    await action('click', panel.querySelector('[role=tab][aria-controls$="-prompt-panel"]'));
+    await check('Prompt settings tab opens', () => panel.querySelector('.pc-prompt-input').closest('[role=tabpanel]').hidden === false);
     const prompt = panel.querySelector('.pc-prompt-input');
     prompt.value = 'Synthetic regression prompt; no real model.';
     prompt.dispatchEvent(new prompt.ownerDocument.defaultView.Event('input', { bubbles: true }));

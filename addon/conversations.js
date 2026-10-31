@@ -6,7 +6,7 @@ var PaperChatConversations = {
     const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
     for (const [key, value] of Object.entries({ viewBox: '0 0 24 24', width: '16', height: '16', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.7', 'aria-hidden': 'true' })) svg.setAttribute(key, value);
     const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', { history: 'M3 11a9 9 0 1 1 2 7 M3 3v8h8 M12 7v5l3 2', new: 'M13 4H4v16h16v-9 M10 14l1-5L19 1l4 4-8 8z', collapse: 'm9 5 7 7-7 7', close: 'm6 6 12 12 M6 18 18 6' }[kind]);
+    path.setAttribute('d', { history: 'M3 11a9 9 0 1 1 2 7 M3 3v8h8 M12 7v5l3 2', new: 'M13 4H4v16h16v-9 M10 14l1-5L19 1l4 4-8 8z', collapse: 'm9 5 7 7-7 7', send: 'M12 19V5 M5 12l7-7 7 7', settings: 'M9.5 3h5l.6 2.3 2 .9 2.2-.7 2.5 4.3-1.7 1.6v2.2l1.7 1.6-2.5 4.3-2.2-.7-2 .9-.6 2.3h-5l-.6-2.3-2-.9-2.2.7-2.5-4.3 1.7-1.6v-2.2L1.8 10l2.5-4.3 2.2.7 2-.9z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0', close: 'm6 6 12 12 M6 18 18 6' }[kind]);
     svg.append(path); button.append(svg); return button;
   },
   mount(plugin, state, { head, history, welcome }) {
@@ -21,16 +21,28 @@ var PaperChatConversations = {
       .paper-chat-panel .pc-title .pc-icon,.paper-chat-panel .pc-icon{display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;width:28px;height:28px;min-height:28px;padding:5px}
       .paper-chat-panel .pc-icon:hover{background:color-mix(in srgb,currentColor 7%,transparent)}
       .paper-chat-panel .pc-icon svg{display:block;pointer-events:none}
-      .paper-chat-panel .pc-log{padding:20px}
-      .paper-chat-panel .pc-message{padding:0;border:0;background:transparent;border-radius:0;margin:0 0 24px}
-      .paper-chat-panel .pc-message[data-role=user]{margin-left:35px;padding:10px 14px;border-radius:14px;background:color-mix(in srgb,currentColor 6%,transparent)}
+      .paper-chat-panel .pc-log{display:block;flex:1 1 0;min-height:0;padding:20px}
+      .paper-chat-panel .pc-message{display:block;flex:0 0 auto;height:auto;min-height:0;max-height:none;padding:0;border:0;background:transparent;border-radius:0;margin:0 0 24px}
+      .paper-chat-panel .pc-message[data-role=user]{width:fit-content;max-width:calc(100% - 35px);min-width:0;margin-left:auto;padding:10px 14px;border-radius:14px;background:color-mix(in srgb,currentColor 6%,transparent)}
+      .paper-chat-panel .pc-message>.pc-plain,.paper-chat-panel .pc-message>.pc-markdown{display:block;flex:none;height:auto;min-height:0;max-height:none}
       .paper-chat-panel .pc-role{display:none}
-      .paper-chat-panel .pc-compose{margin:0 14px 14px;padding:10px;border:1px solid color-mix(in srgb,currentColor 16%,transparent);border-radius:12px;background:transparent;gap:7px}
-      .paper-chat-panel .pc-compose>textarea{border:0;background:transparent;min-height:58px;padding:0}
-      .paper-chat-panel .pc-context-status{display:flex;align-items:center;gap:7px;margin:0 14px;padding:8px 0;border:0;background:transparent;border-radius:0;font-size:.9em;text-align:left}
-      .paper-chat-panel .pc-context-status:before{content:'';width:6px;height:6px;border-radius:50%;background:#40865f;flex:none}
-      .paper-chat-panel .pc-context-status span:first-child{flex:1}
-      .paper-chat-panel .pc-status{margin:0 14px 4px;font-size:.85em}
+      .paper-chat-panel .pc-input-area{display:flex;flex-direction:column;flex:0 1 auto;min-width:0;min-height:0;padding:4px 14px 12px;gap:7px;overflow:visible}
+      .paper-chat-panel .pc-compose{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;margin:0;padding:10px;border:1px solid color-mix(in srgb,currentColor 16%,transparent);border-radius:12px;background:transparent;gap:7px;overflow:auto}
+      .paper-chat-panel .pc-compose>*{flex:0 0 auto;min-width:0}
+      .paper-chat-panel .pc-compose>textarea{flex:1 0 auto;height:auto;min-height:3.2em;max-height:none;resize:none;border:0;background:transparent;padding:0;overflow:auto}
+      .paper-chat-panel .pc-bottom{flex-wrap:wrap;gap:6px}
+      .paper-chat-panel .pc-bottom>.pc-actions{margin-left:auto;flex-shrink:0}
+      .paper-chat-panel .pc-bottom>.pc-hint{min-width:0;text-align:left;overflow-wrap:anywhere;white-space:normal}
+      .paper-chat-panel .pc-composer-footer{position:relative;display:grid;grid-template-columns:28px minmax(0,1fr);align-items:start;gap:8px;flex:0 0 auto;min-height:0;min-width:0}
+      .paper-chat-panel .pc-below-clear{display:flex;flex-direction:column;align-items:stretch;min-height:0;min-width:0}
+      .paper-chat-panel .pc-below-clear>.pc-clear{align-self:flex-start;max-width:100%;min-height:0;max-height:none;padding:1px 0;border:0;border-radius:0;background:transparent;white-space:normal;text-align:left;overflow-wrap:anywhere;line-height:1.5;opacity:.7}
+      .paper-chat-panel .pc-context-status{display:flex;align-items:center;gap:6px;margin:0;padding:2px 0;min-height:0;max-height:none;border:0;background:transparent;border-radius:0;font-size:var(--pc-system-font-size,13px);text-align:left;white-space:normal;line-height:1.5;opacity:.7}
+      .paper-chat-panel .pc-context-status:before{content:'';width:5px;height:5px;border-radius:50%;background:#40865f;flex:none}
+      .paper-chat-panel .pc-context-status span:first-child{flex:1;min-width:0;overflow-wrap:anywhere}
+      .paper-chat-panel .pc-context-status span:last-child{flex:none}
+      .paper-chat-panel .pc-composer-footer>.pc-settings-menu{bottom:calc(100% + 8px);left:0;right:0;grid-column:1 / -1}
+      .paper-chat-panel .pc-input-area>.pc-status,.paper-chat-panel .pc-input-area>.pc-error{flex:0 0 auto;min-height:0;max-height:6em;overflow:auto;margin:0;font-size:var(--pc-system-font-size,13px);overflow-wrap:anywhere;white-space:pre-wrap}
+      .paper-chat-panel .pc-input-area>.pc-status:empty{display:none}
       .paper-chat-panel .pc-drawer{position:absolute;inset:0;z-index:5;overflow:auto;background:var(--material-background,#fafafa);padding:18px;user-select:text}
       .paper-chat-panel .pc-drawer-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
       .paper-chat-panel .pc-drawer h3{font-size:1em;margin:0;font-weight:600}
@@ -52,7 +64,24 @@ var PaperChatConversations = {
     const statusText = el('span', t('history.loading')), detail = el('span', t('context.details')); status.append(statusText, detail);
     const compose = state.input.parentElement;
     const notice = el('div', '', 'pc-status'); notice.setAttribute('role', 'status');
-    compose.before(state.status, notice, status); // activity/connection status lives near the composer
+    const area = el('div', null, 'pc-input-area');
+    compose.before(area); area.append(compose);
+    const footer = el('div', null, 'pc-composer-footer'), belowClear = el('div', null, 'pc-below-clear');
+    if (state.clear) {
+      const holder = state.clear.parentElement;
+      state.clear.className = 'pc-clear'; belowClear.append(state.clear);
+      if (holder && !holder.children.length) holder.remove();
+    }
+    belowClear.append(status);
+    if (state.settingsButton) footer.append(state.settingsButton);
+    footer.append(belowClear);
+    // The menu must be outside the scrollable compose box, anchored to the gear.
+    if (state.settingsMenu) footer.append(state.settingsMenu);
+    const actions = state.send?.parentElement, hint = compose.querySelector('.pc-hint');
+    if (actions && hint) actions.before(hint);
+    area.append(footer, state.status, notice);
+    if (state.error?.ownerDocument) area.append(state.error);
+    Object.assign(state, { compose, inputArea: area, composerFooter: footer });
     const drawer = (key) => {
       const node = el('section', null, 'pc-drawer'); node.hidden = true;
       node.setAttribute('aria-label', t(key));
@@ -80,7 +109,7 @@ var PaperChatConversations = {
     const contextError = el('div', '', 'pc-drawer-error'); contextError.setAttribute('role', 'status');
     contextDrawer.append(usage, meter, el('p', t('context.auto'), 'pc-muted'), sources, coverage, summary,
       el('p', t('context.archiveNote'), 'pc-muted'), capacityLabel, saveCapacity, el('p', t('context.compactCost'), 'pc-muted'), compact, compactCancel, reconcile, contextError);
-    state.conversationsUI = { history, status, statusText, historyDrawer, contextDrawer, historyList, historyError, retry, usage, meter, sources, coverage, summaryText, capacity, saveCapacity, compact, compactCancel, reconcile, contextError, notice };
+    state.conversationsUI = { history, status, statusText, historyDrawer, contextDrawer, historyList, historyError, retry, usage, meter, sources, coverage, summaryText, capacity, saveCapacity, compact, compactCancel, reconcile, contextError, notice, area, compose, footer, belowClear, style };
     history.setAttribute('aria-expanded', 'false');
     history.addEventListener('click', () => { this.open(state, 'history'); this.list(plugin, state).catch(e => { historyError.textContent = e.message; }); });
     retry.addEventListener('click', () => { if (!state.historyLoaded) state.historyReady = this.initialize(plugin, state).catch(e => { historyError.textContent = e.message; }); else this.list(plugin, state).catch(e => { historyError.textContent = e.message; }); });

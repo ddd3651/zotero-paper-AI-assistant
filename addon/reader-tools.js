@@ -11,6 +11,41 @@ var PaperChatReader = {
     return false;
   },
   view(state) { return state.reader._internalReader._primaryView; },
+  citationView(state) {
+    const internal = state.reader._internalReader;
+    // Zotero's public navigate() targets _lastView, which can be the secondary PDF.
+    const last = internal._lastView;
+    return last?._iframeWindow?.PDFViewerApplication ? last : this.view(state);
+  },
+  matchQuote(chars, quote) {
+    const matches = this.findQuoteMatches(chars, quote);
+    return matches.length === 1 ? matches[0] : null;
+  },
+  findQuoteMatches(chars, quote) {
+    if (!Array.isArray(chars) || typeof quote !== 'string' || quote.length > 1500) return [];
+    // Normalize only layout/typographic differences, never words, case, numbers or math.
+    const typography = text => text.replace(/[\u2018\u2019]/gu, "'").replace(/[\u201c\u201d]/gu, '"')
+      .replace(/\u2011/gu, '\u2010');
+    const cjk = value => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(value || '');
+    const normalized = chars.map((char, index) => {
+      if (typeof char?.u !== 'string') return char;
+      const copy = { ...char, u: typography(char.u) };
+      // A CJK line wrap does not introduce an English word separator. Keep paragraph breaks.
+      if (!char.paragraphBreakAfter && char.lineBreakAfter && cjk(Array.from(char.u).at(-1))
+        && cjk(Array.from(chars[index + 1]?.u || '')[0])) {
+        copy.lineBreakAfter = false;
+        copy.spaceAfter = false;
+      }
+      return copy;
+    });
+    let needle = typography(quote);
+    const source = normalized.map(char => char?.u || '').join('');
+    // Some model link titles contain literal \\n/\\r\\n. Decode just line breaks, and only
+    // when the PDF itself has no such literal sequence (e.g. a code/string example).
+    if (/\\[rn]/u.test(needle) && !/\\[rn]/u.test(source)) needle = needle.replace(/\\r\\n|\\[rn]/gu, '\n');
+    needle = needle.replace(/([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}])\r?\n(?=[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}])/gu, '$1');
+    return PaperChatEvidence.findQuotes(normalized, needle);
+  },
   async loadPage(state, number) {
     if (state.rawPageCache.has(number)) return state.rawPageCache.get(number);
     const win = this.view(state)._iframeWindow;
@@ -82,7 +117,7 @@ var PaperChatReader = {
   },
   sectionForQuote(state, page, quote) {
     const chars = state.rawPageCache.get(page)?.chars;
-    const match = quote && chars ? PaperChatEvidence.matchQuote(chars, quote) : null;
+    const match = quote && chars ? this.matchQuote(chars, quote) : null;
     if (!match) return null;
     let found;
     for (const entry of state.sections || []) {
@@ -101,36 +136,72 @@ var PaperChatReader = {
     return { label: PaperChatText.t("readerTools.format03", {page: (page), value2: (label ? ' · ' + label : '')}), title };
   },
   clearHighlight(state) {
+    const highlightedView = state.highlight?.view;
     state.highlight = null;
-    try { this.view(state)._iframeWindow.document.querySelectorAll('[data-paper-chat-highlight]').forEach(n => n.remove()); } catch {}
+    const internal = state.reader._internalReader;
+    for (const view of new Set([internal._primaryView, internal._secondaryView, highlightedView])) {
+      try { view?._iframeWindow?.document.querySelectorAll('[data-paper-chat-highlight]').forEach(n => n.remove()); } catch {}
+    }
+  },
+  safeRects(rects, viewBox) {
+    if (!Array.isArray(rects) || !rects.length) return false;
+    const area = Array.isArray(viewBox) && viewBox.length === 4 && viewBox.every(Number.isFinite)
+      ? Math.abs((viewBox[2] - viewBox[0]) * (viewBox[3] - viewBox[1])) : 0;
+    return rects.every(rect => Array.isArray(rect) && rect.length === 4 && rect.every(Number.isFinite)
+      && rect[2] > rect[0] && rect[3] > rect[1]
+      && (!area || (rect[2] - rect[0]) * (rect[3] - rect[1]) <= area / 4));
   },
   paintHighlight(state) {
     try {
-      const win = this.view(state)._iframeWindow;
+      const highlight = state.highlight;
+      const win = (highlight?.view || this.view(state))._iframeWindow;
       win.document.querySelectorAll('[data-paper-chat-highlight]').forEach(n => n.remove());
-      if (!state.highlight || state.disposed) return;
-      const { page, rects } = state.highlight;
+      if (!highlight || state.disposed) return false;
+      const { page, rects } = highlight;
       const pageView = win.PDFViewerApplication.pdfViewer.getPageView(page - 1);
-      if (!pageView?.div || !pageView.viewport) return;
-      const layer = win.document.createElement('div');
+      if (!pageView?.div || !pageView.viewport || !rects?.length) return false;
+      const create = () => win.document.createElementNS('http://www.w3.org/1999/xhtml', 'div');
+      const layer = create();
       layer.setAttribute('data-paper-chat-highlight', 'true');
       layer.setAttribute('aria-label', PaperChatText.t("readerTools.text02"));
       layer.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:6;overflow:hidden;';
       for (const rect of rects) {
+        if (!Array.isArray(rect) || rect.length !== 4 || !rect.every(Number.isFinite)) return false;
         const [x1, y1, x2, y2] = pageView.viewport.convertToViewportRectangle(Components.utils.cloneInto(Array.from(rect), win));
-        const mark = win.document.createElement('div');
+        if (![x1, y1, x2, y2].every(Number.isFinite) || x1 === x2 || y1 === y2) return false;
+        const area = pageView.viewport.width * pageView.viewport.height;
+        // A bad glyph box must not turn a sentence citation into a whole-page highlight.
+        if (Number.isFinite(area) && area > 0 && Math.abs((x2 - x1) * (y2 - y1)) > area / 4) return false;
+        const mark = create();
         mark.style.cssText = `position:absolute;left:${Math.min(x1, x2)}px;top:${Math.min(y1, y2)}px;width:${Math.max(1, Math.abs(x2 - x1))}px;height:${Math.max(2, Math.abs(y2 - y1))}px;background:rgba(255,210,30,.38);border-bottom:1px solid rgba(190,130,0,.65);border-radius:2px;`;
         layer.append(mark);
       }
       pageView.div.append(layer);
-    } catch (error) { Zotero.logError(error); }
+      if (highlight.pending) {
+        highlight.pending = false;
+        state.status.textContent = highlight.count > 1
+          ? PaperChatText.t("readerTools.multipleMatches", { count: highlight.count })
+          : PaperChatText.t("readerTools.text05");
+      }
+      return true;
+    } catch (error) { Zotero.logError(error); return false; }
+  },
+  watchHighlightView(state, view) {
+    const eventBus = view?._iframeWindow?.PDFViewerApplication?.eventBus;
+    if (!eventBus || !state.highlightBindings || state.highlightBindings.has(eventBus)) return;
+    const repaint = () => { if (state.highlight?.view === view) this.paintHighlight(state); };
+    const events = ['pagerendered', 'textlayerrendered', 'scalechanging', 'rotationchanging'];
+    for (const event of events) eventBus.on(event, repaint);
+    state.highlightBindings.set(eventBus, () => { for (const event of events) eventBus.off(event, repaint); });
   },
   bindHighlight(state) {
-    const eventBus = this.view(state)._iframeWindow.PDFViewerApplication.eventBus;
-    const repaint = () => this.paintHighlight(state);
-    for (const event of ['pagerendered', 'scalechanging', 'rotationchanging']) eventBus.on(event, repaint);
+    state.highlightCleanup?.();
+    state.highlightBindings = new Map();
+    const internal = state.reader._internalReader;
+    for (const view of [internal._primaryView, internal._secondaryView]) this.watchHighlightView(state, view);
     state.highlightCleanup = () => {
-      for (const event of ['pagerendered', 'scalechanging', 'rotationchanging']) eventBus.off(event, repaint);
+      for (const cleanup of state.highlightBindings.values()) cleanup();
+      state.highlightBindings.clear();
       this.clearHighlight(state);
     };
   },
@@ -138,15 +209,33 @@ var PaperChatReader = {
     const serial = state.navigationSerial = (state.navigationSerial || 0) + 1;
     this.clearHighlight(state);
     state.error.textContent = '';
-    await state.reader.navigate({ pageIndex: page - 1 });
+    const view = this.citationView(state);
+    this.watchHighlightView(state, view);
+    const navigate = location => typeof view.navigate === 'function' ? view.navigate(location) : state.reader.navigate(location);
+    await navigate({ pageIndex: page - 1 });
+    if (serial !== state.navigationSerial || state.disposed) return;
     if (!details.quote) { state.status.textContent = PaperChatText.t("readerTools.text03"); return; }
     const data = await this.loadPage(state, page);
-    const match = PaperChatEvidence.matchQuote(data.chars || [], details.quote);
+    const matches = this.findQuoteMatches(data.chars || [], details.quote);
     if (serial !== state.navigationSerial || state.disposed) return;
-    if (!match?.rects?.length) { state.status.textContent = PaperChatText.t("readerTools.text04"); return; }
-    state.highlight = { page, rects: match.rects };
-    await state.reader.navigate({ position: { pageIndex: page - 1, rects: match.rects } });
+    // A repeated abstract/introduction sentence is legitimate evidence at every occurrence.
+    // Do not claim uniqueness or discard the other occurrences after dehyphenation.
+    if (!matches.length || matches.some(match => !match.rects?.length)) {
+      state.status.textContent = PaperChatText.t("readerTools.text04"); return;
+    }
+    const rects = matches.flatMap(match => match.rects);
+    const viewport = view._iframeWindow?.PDFViewerApplication?.pdfViewer?.getPageView(page - 1)?.viewport;
+    if (!this.safeRects(rects, data.viewBox || viewport?.viewBox)) {
+      state.status.textContent = PaperChatText.t("readerTools.text04"); return;
+    }
+    state.highlight = { page, rects, view, count: matches.length, pending: true };
+    // reader.navigate() does not await the inner PDF view's navigation/rendering.
+    // Report success only once our persistent overlay is actually appended.
+    state.status.textContent = PaperChatText.t("readerTools.format01", { page });
+    // Scroll to a concrete sentence instead of the bounding box spanning both columns.
+    // The persistent overlay below still displays every complete match on the page.
+    await navigate({ position: { pageIndex: page - 1, rects: matches[0].rects } });
+    if (serial !== state.navigationSerial || state.disposed) return;
     this.paintHighlight(state);
-    state.status.textContent = PaperChatText.t("readerTools.text05");
   },
 };

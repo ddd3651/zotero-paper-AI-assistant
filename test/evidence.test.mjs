@@ -65,6 +65,33 @@ test('repeated matches, including overlaps and normalized variants, are refused'
   }
 });
 
+test('all-match API preserves both original locations after line-wrap dehyphenation', () => {
+  const source = 'PERSONA-BASE extracts orthogonal trait vectors via contrastive\nactivation analysis. / PERSONA-BASE extracts orthogonal trait vectors via con-\ntrastive activation analysis.';
+  const quote = 'PERSONA-BASE extracts orthogonal trait vectors via contrastive activation analysis.';
+  const chars = charsFor(source);
+  const results = scope.PaperChatEvidence.findQuotes(chars, quote);
+  assert.equal(results.length, 2);
+  assert.equal(results[0].start, 0);
+  assert.equal(results[1].start, source.indexOf('PERSONA-BASE', 1));
+  assert.equal(results[0].end, source.indexOf('.') + 1);
+  assert.equal(results[1].end, source.length);
+  assert.ok(results.every(result => result.rects.length));
+  assert.equal(match(chars, quote), null, 'strict unique API retains its contract');
+});
+
+test('all-match API reports overlapping complete occurrences but no partial-word or fuzzy hits', () => {
+  const results = scope.PaperChatEvidence.findQuotes(charsFor('ab ab ab ab ab'), 'ab ab ab ab');
+  assert.deepEqual(Array.from(results, result => result.start), [0, 3]);
+  for (const [source, quote] of [['The result is not stable.', 'The result is stable.'],
+    ['misunderstood analysis', 'understood analysis'], ['The result was stable.', 'The result … stable.'],
+    ['small', 'small'], ['x² testing.', 'x2 testing.']]) {
+    assert.equal(scope.PaperChatEvidence.findQuotes(charsFor(source), quote).length, 0);
+  }
+  for (const source of [null, {}, [null], [{ u: 12 }]]) {
+    assert.equal(scope.PaperChatEvidence.findQuotes(source, 'The evidence.' ).length, 0);
+  }
+});
+
 test('wrong words, punctuation, case and omitted text cannot match by guessing', () => {
   for (const quote of ['The result is stable.', 'the result was stable.', 'The result was stable!',
     'The result stable.', 'The result … stable.', 'Theresultwasstable.']) {
