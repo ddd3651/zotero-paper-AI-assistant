@@ -86,6 +86,45 @@ async function run(root) {
         && Math.abs(panel.getBoundingClientRect().width - before) < 1.5
         && font === win.getComputedStyle(panel).fontSize && zoom === win.getComputedStyle(panel).zoom;
     });
+    await check('Composer contracts progressively and restores controls without changing input or fonts', async () => {
+      const doc = panel.ownerDocument, win = doc.defaultView;
+      const area = panel.querySelector('.pc-input-area'), grip = panel.querySelector('.pc-resize-composer');
+      const input = panel.querySelector('.pc-compose>textarea'), model = panel.querySelector('.pc-model-row');
+      const hint = panel.querySelector('.pc-hint'), bottom = panel.querySelector('.pc-bottom');
+      const status = panel.querySelector('.pc-context-status'), clear = panel.querySelector('.pc-clear');
+      const font = win.getComputedStyle(input).fontSize, draft = input.value;
+      const visible = node => win.getComputedStyle(node).display !== 'none' && node.getBoundingClientRect().height > 0;
+      const fire = (target, type, y) => target.dispatchEvent(new win.PointerEvent(type, {
+        bubbles: true, cancelable: true, pointerId: 987655, pointerType: 'mouse', isPrimary: true,
+        button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: grip.getBoundingClientRect().x + 30, clientY: y,
+      }));
+      const samples = [];
+      input.value = 'Synthetic resize draft.';
+      try {
+        for (const target of [240, 180, 140, 95, 240]) {
+          const y = grip.getBoundingClientRect().y + 6;
+          const scale = parseFloat(win.getComputedStyle(panel).zoom) || 1;
+          fire(grip, 'pointerdown', y);
+          fire(doc, 'pointermove', y + area.getBoundingClientRect().height - target * scale);
+          fire(doc, 'pointerup', y);
+          await Zotero.Promise.delay(60);
+          const inputBounds = input.getBoundingClientRect(), bottomBounds = bottom.getBoundingClientRect();
+          samples.push({ target, height: area.getBoundingClientRect().height,
+            line: parseFloat(win.getComputedStyle(input).lineHeight), density: area.getAttribute('data-pc-density'),
+            hint: visible(hint), model: visible(model), footer: visible(status) && visible(clear)
+              && visible(panel.querySelector('.pc-settings-trigger')),
+            ordered: inputBounds.bottom <= bottomBounds.top + 1
+              && (!visible(model) || inputBounds.bottom <= model.getBoundingClientRect().top + 1),
+            draft: input.value === 'Synthetic resize draft.', font: win.getComputedStyle(input).fontSize === font });
+        }
+        result.composerSamples = samples;
+        return samples.every(sample => sample.footer && sample.ordered && sample.draft && sample.font)
+          && samples[0].hint && samples[0].model && !samples[1].hint && samples[1].model
+          && !samples[2].hint && !samples[2].model && samples[4].hint && samples[4].model
+          && samples[0].line > samples[1].line && samples[1].line > samples[2].line
+          && samples[2].line >= samples[3].line && samples[3].height < samples[0].height;
+      } finally { input.value = draft; }
+    });
     reader.close();
     await check('Reader closes without leaving a live PDF tab', () => !Zotero.Reader._readers.includes(reader));
     reader = await Zotero.Reader.open(item.id);

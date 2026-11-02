@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "__UI_NAME__",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "__UI_DESCRIPTION__",
   "author": "Zotero Paper Chat",
   "applications": {

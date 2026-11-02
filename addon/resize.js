@@ -5,6 +5,8 @@ var PaperChatResize = (() => {
   const key = 'extensions.paper-chat.panelWidth';
   const composerKey = 'extensions.paper-chat.composerHeight';
   const minimum = 280, readerMinimum = 240;
+  const densityProperties = ['--pc-compose-gap', '--pc-compose-padding', '--pc-area-gap',
+    '--pc-area-bottom', '--pc-input-line-height', '--pc-input-lines'];
   const numeric = value => typeof value === 'number' && Number.isFinite(value) && value > 0;
   function mount(plugin, state) {
     if (!state?.panel || state.disposed) return;
@@ -62,7 +64,10 @@ var PaperChatResize = (() => {
       let height;
       try { height = Zotero.Prefs.get(composerKey, true); } catch { /* Default height. */ }
       ui.composer = { area: state.inputArea, compose: state.compose, input: state.input, handle: grip,
-        desired: numeric(height) ? height : 240, originalHeight: state.inputArea.style.height };
+        desired: numeric(height) ? height : 240, originalHeight: state.inputArea.style.height,
+        originalDensity: state.inputArea.getAttribute('data-pc-density'),
+        originalProperties: densityProperties.map(name => [name, state.inputArea.style.getPropertyValue(name),
+          state.inputArea.style.getPropertyPriority(name)]) };
       state.inputArea.before(grip);
     }
     mounts.set(state, ui);
@@ -74,7 +79,10 @@ var PaperChatResize = (() => {
     const consume = event => { event.preventDefault(); event.stopPropagation(); };
     const persist = (axis = 'x') => {
       const target = axis === 'y' ? ui.composer : ui;
-      target.desired = Math.round(target.actual);
+      // Content can force a taller box (selection/warning), but must not change
+      // the user's density request and restore rows that were just hidden.
+      target.desired = Math.round(axis === 'y'
+        ? Math.max(1, Math.min(target.maximum, target.desired)) : target.actual);
       try { Zotero.Prefs.set(axis === 'y' ? composerKey : key, target.desired, true); } catch { /* Session still works. */ }
     };
     const finish = (commit = false) => {
@@ -121,7 +129,7 @@ var PaperChatResize = (() => {
       // Stay outside the zoomed panel and above the PDF iframe for the entire gesture.
       (doc.documentElement || parent).append(overlay);
       const drag = ui.drag = { id: event.pointerId, pointer, axis, handle: activeHandle, x: event.clientX, y: event.clientY, width: ui.actual,
-        height: ui.composer?.actual, ratio: ui.ratio,
+        height: ui.composer && Math.min(ui.composer.actual, ui.composer.desired), ratio: ui.ratio,
         side: ui.side, zoom: panel.style.zoom, desired: (axis === 'y' ? ui.composer : ui).desired, overlay, listeners: [] };
       const listen = (target, type, handler) => {
         target.addEventListener(type, handler, true);
@@ -163,7 +171,7 @@ var PaperChatResize = (() => {
         if (!['ArrowUp', 'ArrowDown', 'Home'].includes(event.key)) return;
         consume(event); finish(); apply(plugin, state);
         ui.composer.desired = event.key === 'Home' ? 240
-          : ui.composer.actual + (event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 40 : 10);
+          : Math.min(ui.composer.actual, ui.composer.desired) + (event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 40 : 10);
         apply(plugin, state); persist('y');
       });
     }
@@ -254,11 +262,30 @@ var PaperChatResize = (() => {
     const children = node => [...node.children].filter(child => visible(child)
       && !['absolute', 'fixed'].includes(css(child).position)
       && !['style', 'script'].includes(child.tagName?.toLowerCase()));
+    const siblings = children(panel).filter(node => node !== c.area && node !== ui.state.log
+      && node !== ui.handle && node.tagName?.toLowerCase() !== 'style' && css(node).position !== 'absolute');
+    const available = Math.max(0, height(panel) - spacing(panel)
+      - siblings.reduce((sum, node) => sum + height(node) + margins(node), 0));
+    const font = px(css(c.input).fontSize) || 13;
+    const systemFont = px(css(c.area).fontSize) || 13;
+    // Density depends on the requested/available space, never the content floor:
+    // hiding a row changes that floor and otherwise makes the layout oscillate.
+    const relativeHeight = Math.min(c.desired, Math.max(0, available - 96))
+      * 13 / Math.max(font, systemFont);
+    const density = relativeHeight < 150 ? 'minimal' : relativeHeight < 190 ? 'compact' : 'roomy';
+    if (c.area.getAttribute('data-pc-density') !== density) c.area.setAttribute('data-pc-density', density);
+    const progress = Math.max(0, Math.min(1, (240 - relativeHeight) / 130));
+    const interpolate = (from, to) => Math.round((from + (to - from) * progress) * 10000) / 10000;
+    const values = [interpolate(7, 2) + 'px', interpolate(10, 4) + 'px',
+      interpolate(7, 3) + 'px', interpolate(12, 4) + 'px', String(interpolate(1.6, 1.2)), String(interpolate(2, 1))];
+    densityProperties.forEach((name, index) => {
+      if (c.area.style.getPropertyValue(name) !== values[index]) c.area.style.setProperty(name, values[index]);
+    });
+    // Read again after applying density: the parent stylesheet determines which
+    // rows are in flow and gives the textarea its continuously shrinking floor.
     const inputCSS = css(c.input);
-    // Two actual text lines, not a fixed pixel floor: both fonts may be enlarged.
-    const font = px(inputCSS.fontSize) || 13;
-    const line = px(inputCSS.lineHeight) || font * 1.6;
-    const inputMinimum = Math.max(px(inputCSS.minHeight), line * 2 + spacing(c.input));
+    const line = px(inputCSS.lineHeight) || font * Number(values[4]);
+    const inputMinimum = Math.max(px(inputCSS.minHeight), line * Number(values[5]) + spacing(c.input));
     const rows = children(c.compose);
     const composeMinimum = spacing(c.compose) + rows.reduce((sum, node) => sum
       + (node === c.input ? inputMinimum : height(node)) + margins(node), 0)
@@ -267,10 +294,6 @@ var PaperChatResize = (() => {
     c.minimum = Math.ceil(spacing(c.area) + areaRows.reduce((sum, node) => sum
       + (node === c.compose ? composeMinimum : height(node)) + margins(node), 0)
       + Math.max(0, areaRows.length - 1) * px(css(c.area).rowGap || css(c.area).gap));
-    const siblings = children(panel).filter(node => node !== c.area && node !== ui.state.log
-      && node !== ui.handle && node.tagName?.toLowerCase() !== 'style' && css(node).position !== 'absolute');
-    const available = Math.max(0, height(panel) - spacing(panel)
-      - siblings.reduce((sum, node) => sum + height(node) + margins(node), 0));
     // Normally retain reading space; when the window is very short, scroll the
     // compose content instead of squeezing text/controls into overlapping rows.
     c.maximum = Math.max(0, available - Math.min(96, Math.max(0, available - c.minimum)));
@@ -285,7 +308,16 @@ var PaperChatResize = (() => {
     for (const remove of ui.listeners) remove();
     ui.finish();
     ui.handle.remove(); ui.style.remove();
-    if (ui.composer) { ui.composer.handle.remove(); ui.composer.area.style.height = ui.composer.originalHeight; }
+    if (ui.composer) {
+      const c = ui.composer;
+      c.handle.remove(); c.area.style.height = c.originalHeight;
+      if (c.originalDensity === null) c.area.removeAttribute('data-pc-density');
+      else c.area.setAttribute('data-pc-density', c.originalDensity);
+      for (const [name, value, priority] of c.originalProperties) {
+        if (value) c.area.style.setProperty(name, value, priority);
+        else c.area.style.removeProperty(name);
+      }
+    }
     for (const [name, value] of Object.entries(ui.original)) ui.panel.style[name] = value;
   }
   return { mount, apply, cleanup };

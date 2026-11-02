@@ -7,8 +7,25 @@ const key = 'extensions.paper-chat.panelWidth';
 
 // DOM mock with layout (including CSS zoom), event listeners, pointer capture,
 // style mutation delivery, and resize observer delivery rather than source checks.
-function fixture({ side = 'right', zoom = 1, saved, available = 1200, broken = false, captureFails = false, platform = 'mac', composer = false, savedHeight, height = 800, chatFont = 13, systemFont = 13, selection = false } = {}) {
+function fixture({ side = 'right', zoom = 1, saved, available = 1200, broken = false, captureFails = false, platform = 'mac', composer = false, savedHeight, height = 800, chatFont = 13, systemFont = 13, selection = false, error = false, originalDensity, originalVariables = {} } = {}) {
   const mutations = new Set(), resizes = new Set(), writes = [], prefs = { [key]: saved, 'extensions.paper-chat.composerHeight': savedHeight };
+  let styleWrites = 0, attributeWrites = 0;
+  function changed(node) {
+    for (const observer of mutations) {
+      if (observer.target === node) observer.pending = true;
+      else if (observer.options?.subtree) {
+        for (let ancestor = node.parentElement; ancestor; ancestor = ancestor.parentElement) {
+          if (ancestor === observer.target) { observer.pending = true; break; }
+        }
+      }
+    }
+  }
+  const areaOf = node => {
+    while (node && node.className !== 'pc-input-area') node = node.parentElement;
+    return node;
+  };
+  const variable = (node, name, fallback) => parseFloat(areaOf(node)?.style.getPropertyValue(name)) || fallback;
+  const densityOf = node => areaOf(node)?.getAttribute('data-pc-density') || 'roomy';
   class Target {
     events = new Map();
     addEventListener(type, fn) { if (!this.events.has(type)) this.events.set(type, new Set()); this.events.get(type).add(fn); }
@@ -22,12 +39,18 @@ function fixture({ side = 'right', zoom = 1, saved, available = 1200, broken = f
     get listenerCount() { return [...this.events.values()].reduce((n, entries) => n + entries.size, 0); }
   }
   class Element extends Target {
-    children = []; attrs = {}; hidden = false; captured = new Set();
+    children = []; attrs = {}; hidden = false; captured = new Set(); attributeWrites = 0;
     constructor(tag) {
       super(); this.tagName = tag; this.ownerDocument = doc;
-      this.style = new Proxy({ position: '', width: '', flexBasis: '', minWidth: '', maxWidth: '', order: '', zoom: '', fontSize: '' }, {
+      const priorities = new Map();
+      this.style = new Proxy({ position: '', width: '', flexBasis: '', minWidth: '', maxWidth: '', order: '', zoom: '', fontSize: '',
+        getPropertyValue(name) { return this[name] || ''; },
+        getPropertyPriority(name) { return priorities.get(name) || ''; },
+        setProperty(name, value, priority = '') { priorities.set(name, priority); this[name] = value; },
+        removeProperty(name) { const old = this[name] || ''; priorities.delete(name); this[name] = ''; return old; },
+      }, {
         set: (target, prop, value) => {
-          if (target[prop] !== value) for (const observer of mutations) if (observer.target === this) observer.pending = true;
+          styleWrites++; changed(this);
           target[prop] = value; return true;
         },
       });
@@ -36,7 +59,8 @@ function fixture({ side = 'right', zoom = 1, saved, available = 1200, broken = f
     before(...nodes) { const parent = this.parentElement, index = parent.children.indexOf(this); for (const node of nodes) { node.remove(); node.parentElement = parent; } parent.children.splice(index, 0, ...nodes); }
     querySelectorAll(selector) { return this.children.flatMap(node => [node, ...node.querySelectorAll(selector)]); }
     remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(n => n !== this); this.parentElement = null; }
-    setAttribute(name, value) { this.attrs[name] = value; }
+    getAttribute(name) { return this.attrs[name] ?? null; }
+    setAttribute(name, value) { attributeWrites++; this.attributeWrites++; this.attrs[name] = value; changed(this); }
     removeAttribute(name) { delete this.attrs[name]; }
     get offsetWidth() { return Math.round(parseFloat(this.style.width) || 370); }
     getBoundingClientRect() {
@@ -49,12 +73,15 @@ function fixture({ side = 'right', zoom = 1, saved, available = 1200, broken = f
       else if (this.tagName === 'header') layoutHeight = 44 * systemFont / 13;
       else if (this.className === 'pc-resize-composer') layoutHeight = 12;
       else if (this.className === 'pc-input-area') layoutHeight = parseFloat(this.style.height) || 240;
-      else if (this.className === 'pc-composer-footer') layoutHeight = systemFont * 3 + 6;
+      else if (this.className === 'pc-composer-footer') layoutHeight = densityOf(this) === 'minimal' ? Math.max(28, systemFont * 1.5 + 4) : systemFont * 3 + 6;
       else if (this.className === 'pc-compose') layoutHeight = Math.max(0, (parseFloat(area?.style.height) || 240) - (systemFont * 3 + 6) - 23);
       else if (this.className === 'pc-model-row') layoutHeight = systemFont * 1.5 + 12;
-      else if (this.className === 'pc-bottom') layoutHeight = Math.max(28, systemFont * 1.5 + 8);
-      else if (this.className === 'pc-selection') layoutHeight = this.hidden ? 0 : systemFont * 4 + 18;
-      else if (this.tagName === 'textarea') layoutHeight = chatFont * 3.2;
+      else if (this.className === 'pc-bottom') layoutHeight = densityOf(this) === 'roomy' ? Math.max(28, systemFont * 1.5 + 8) : 28;
+      else if (this.className === 'pc-selection') layoutHeight = this.hidden ? 0 : densityOf(this) === 'minimal' ? chatFont * 2.4 + systemFont * 1.5 + 8 : chatFont * 4 + 18;
+      else if (this.className === 'pc-error' || this.className === 'pc-notice') layoutHeight = this.hidden ? 0 : systemFont * 3;
+      else if (this.className === 'pc-hint') layoutHeight = systemFont * 1.5 + 8;
+      else if (this.tagName === 'textarea') layoutHeight = chatFont * variable(this, '--pc-input-lines', 2) * variable(this, '--pc-input-line-height', 1.6);
+      if (win.getComputedStyle(this).display === 'none') layoutHeight = 0;
       return { width: this.tagName === 'main' ? available : (parseFloat(this.style.width) || 370) * scale, height: layoutHeight * scale };
     }
     setPointerCapture(id) { if (captureFails) throw Error('capture'); this.captured.add(id); }
@@ -63,7 +90,7 @@ function fixture({ side = 'right', zoom = 1, saved, available = 1200, broken = f
   }
   class MutationObserver {
     constructor(fn) { this.fn = fn; mutations.add(this); }
-    observe(target) { this.target = target; }
+    observe(target, options) { this.target = target; this.options = options; }
     disconnect() { mutations.delete(this); }
   }
   class ResizeObserver {
@@ -76,8 +103,11 @@ function fixture({ side = 'right', zoom = 1, saved, available = 1200, broken = f
     getComputedStyle(panel) {
       const styles = { ...panel.style, display: panel.hidden ? 'none' : 'block', position: panel.style.position || 'static', width: panel.style.width || '370px',
         fontSize: (panel.tagName === 'textarea' ? chatFont : systemFont) + 'px', lineHeight: (panel.tagName === 'textarea' ? chatFont * 1.6 : systemFont * 1.5) + 'px' };
-      if (panel.className === 'pc-input-area') Object.assign(styles, { paddingTop: '4px', paddingBottom: '12px', rowGap: '7px' });
-      if (panel.className === 'pc-compose') Object.assign(styles, { paddingTop: '10px', paddingBottom: '10px', borderTopWidth: '1px', borderBottomWidth: '1px', rowGap: '7px' });
+      if (panel.className === 'pc-input-area') Object.assign(styles, { paddingTop: '4px', paddingBottom: variable(panel, '--pc-area-bottom', 12) + 'px', rowGap: variable(panel, '--pc-area-gap', 7) + 'px' });
+      if (panel.className === 'pc-compose') Object.assign(styles, { paddingTop: variable(panel, '--pc-compose-padding', 10) + 'px', paddingBottom: variable(panel, '--pc-compose-padding', 10) + 'px', borderTopWidth: '1px', borderBottomWidth: '1px', rowGap: variable(panel, '--pc-compose-gap', 7) + 'px' });
+      if (panel.tagName === 'textarea') Object.assign(styles, { lineHeight: chatFont * variable(panel, '--pc-input-line-height', 1.6) + 'px', minHeight: chatFont * variable(panel, '--pc-input-line-height', 1.6) * variable(panel, '--pc-input-lines', 2) + 'px' });
+      if (panel.className === 'pc-hint' && densityOf(panel) !== 'roomy'
+        || panel.className === 'pc-model-row' && densityOf(panel) === 'minimal') styles.display = 'none';
       if (panel.className === 'pc-resize-panel') styles.position = 'absolute';
       return styles;
     },
@@ -101,15 +131,23 @@ function fixture({ side = 'right', zoom = 1, saved, available = 1200, broken = f
     if (composer) {
       state.log = new Element('div'); state.log.className = 'pc-log';
       state.inputArea = new Element('div'); state.inputArea.className = 'pc-input-area';
+      if (originalDensity !== undefined) state.inputArea.setAttribute('data-pc-density', originalDensity);
+      for (const [name, entry] of Object.entries(originalVariables)) state.inputArea.style.setProperty(name, entry.value, entry.priority);
       state.compose = new Element('div'); state.compose.className = 'pc-compose';
       state.input = new Element('textarea');
       const selected = new Element('div'); selected.className = 'pc-selection'; selected.hidden = !selection;
       const model = new Element('div'); model.className = 'pc-model-row';
       const bottom = new Element('div'); bottom.className = 'pc-bottom';
+      const hint = new Element('span'); hint.className = 'pc-hint'; bottom.append(hint);
+      const actions = new Element('div'); actions.className = 'pc-actions'; bottom.append(actions);
       const footer = new Element('div'); footer.className = 'pc-composer-footer';
       panel.append(new Element('header'), state.log, state.inputArea);
       state.inputArea.append(state.compose, footer); state.compose.append(selected, state.input, model, bottom);
       state.selectionCard = selected;
+      state.modelRow = model; state.hint = hint; state.composerFooter = footer;
+      state.error = new Element('div'); state.error.className = 'pc-error'; state.error.hidden = !error;
+      state.notice = new Element('div'); state.notice.className = 'pc-notice'; state.notice.hidden = true;
+      state.inputArea.append(state.notice, state.error);
     }
     return { state, panel, ui: api.mount(plugin, state) };
   }
@@ -122,6 +160,7 @@ function fixture({ side = 'right', zoom = 1, saved, available = 1200, broken = f
     assert.fail('mutation observer loop');
   }
   return { api, plugin, panel, root, win, doc, prefs, calls, writes, mutations, resizes, flush,
+    get styleWrites() { return styleWrites; }, get attributeWrites() { return attributeWrites; },
     resize(width) { available = width; for (const observer of [...resizes]) observer.fn([]); flush(); },
     resizeHeight(value) { height = value; for (const observer of [...resizes]) observer.fn([]); flush(); },
     fonts(chat, system) { chatFont = chat; systemFont = system; for (const observer of [...resizes]) observer.fn([]); flush(); } };
@@ -327,17 +366,17 @@ for (const zoom of [.75, 1.25, 1.75]) test(`composer zoom ${zoom} converts point
 test('composer dynamic content floor grows for both fonts and selected excerpts, and clamps extreme downward drags', () => {
   const f = fixture({ composer: true, savedHeight: 10 }), p = f.panel(), c = p.ui.composer;
   const small = c.minimum; assert.equal(c.actual, small);
-  assert.ok(small > 150); assert.ok(c.minimum <= c.maximum);
+  assert.ok(small < 150 && small > 60); assert.ok(c.minimum <= c.maximum);
   f.fonts(24, 24); const big = c.minimum;
-  assert.ok(big > small + 70); assert.equal(c.actual, big);
+  assert.ok(big > small + 20); assert.equal(c.actual, big);
   p.state.selectionCard.hidden = false; f.resize(1200);
-  assert.ok(c.minimum > big + 90); assert.equal(c.actual, c.minimum);
+  assert.ok(c.minimum > big + 80); assert.equal(c.actual, c.minimum);
   c.handle.fire('pointerdown');
   f.doc.fire('pointermove', { clientY: 2000, buttons: 1 });
   assert.equal(c.actual, c.minimum); f.doc.fire('pointerup');
-  assert.equal(f.prefs[composerKey], c.minimum);
+  assert.equal(f.prefs[composerKey], 1);
   p.state.selectionCard.hidden = true; f.resize(1200);
-  assert.ok(c.minimum < f.prefs[composerKey]);
+  assert.equal(c.minimum, big); assert.equal(c.area.getAttribute('data-pc-density'), 'minimal');
 });
 
 test('very short windows cap composer at available height and can recover without losing the requested height', () => {
@@ -381,11 +420,11 @@ test('Home restores default composer height and native initial sidebar width, bo
   assert.equal(p.ui.actual, Math.round(370 * 1.25)); assert.equal(f.prefs[key], Math.round(370 * 1.25));
   assert.equal(c.actual, Math.max(240, c.minimum)); assert.equal(f.prefs[composerKey], c.actual);
   f.fonts(24, 24); c.handle.fire('keydown', { key: 'Home' });
-  assert.equal(c.actual, c.minimum); assert.ok(c.minimum > 240);
+  assert.equal(c.actual, Math.max(240, c.minimum)); assert.equal(c.area.getAttribute('data-pc-density'), 'minimal');
   c.handle.fire('pointerdown'); f.doc.fire('pointermove', { clientY: 300, buttons: 1 });
   c.handle.fire('keydown', { key: 'Home' });
   assert.equal(p.ui.drag, null); assert.equal(f.doc.listenerCount, 0);
-  assert.equal(f.doc.documentElement.children.length, 0); assert.equal(c.actual, c.minimum);
+  assert.equal(f.doc.documentElement.children.length, 0); assert.equal(c.actual, Math.max(240, c.minimum));
 });
 
 test('composer minimum is independent of requested height and excludes hidden or visible out-of-flow menus', () => {
@@ -401,4 +440,138 @@ test('composer minimum is independent of requested height and excludes hidden or
   menu.style.position = 'relative'; menu.hidden = true;
   f.api.apply(f.plugin, p.state); assert.equal(c.minimum, minimum);
   menu.hidden = false; f.api.apply(f.plugin, p.state); assert.ok(c.minimum > minimum + 900);
+});
+
+const densityVariables = ['--pc-compose-gap', '--pc-compose-padding', '--pc-area-gap',
+  '--pc-area-bottom', '--pc-input-line-height', '--pc-input-lines'];
+const densityValues = c => densityVariables.map(name => parseFloat(c.area.style.getPropertyValue(name)));
+const dragComposerTo = (f, p, desired) => {
+  const c = p.ui.composer;
+  c.handle.fire('pointerdown');
+  f.doc.fire('pointermove', { clientY: 400 + (p.ui.drag.height - desired) * p.ui.drag.ratio, buttons: 1 });
+};
+
+for (const platform of ['mac', 'win']) test(`${platform}: composer continuously tightens spacing and restores every value when dragged back up`, () => {
+  const f = fixture({ platform, composer: true }), p = f.panel(), c = p.ui.composer;
+  const initial = densityValues(c), initialMinimum = c.minimum;
+  assert.deepEqual(initial, [7, 10, 7, 12, 1.6, 2]);
+  assert.equal(c.actual, 240); assert.equal(c.area.getAttribute('data-pc-density'), 'roomy');
+  c.handle.fire('pointerdown');
+  let previous = initial;
+  for (let desired = 235; desired >= 110; desired -= 5) {
+    f.doc.fire('pointermove', { clientY: 400 + 240 - desired, buttons: 1 }); f.flush();
+    const values = densityValues(c);
+    for (let i = 0; i < values.length; i++) assert.ok(values[i] < previous[i], `${densityVariables[i]} at ${desired}`);
+    assert.equal(c.area.getAttribute('data-pc-density'), desired < 150 ? 'minimal' : desired < 190 ? 'compact' : 'roomy');
+    assert.ok(c.actual >= c.minimum); previous = values;
+  }
+  assert.deepEqual(previous, [2, 4, 3, 4, 1.2, 1]);
+  assert.ok(c.minimum < initialMinimum - 70);
+  for (let desired = 115; desired <= 240; desired += 5) {
+    f.doc.fire('pointermove', { clientY: 400 + 240 - desired, buttons: 1 }); f.flush();
+  }
+  f.doc.fire('pointerup'); f.flush();
+  assert.deepEqual(densityValues(c), initial); assert.equal(c.minimum, initialMinimum);
+  assert.equal(c.area.getAttribute('data-pc-density'), 'roomy'); assert.equal(f.prefs[composerKey], 240);
+});
+
+test('density thresholds are strict; CSS-hidden hint/model rows consume no space without changing DOM hidden state', () => {
+  const f = fixture({ composer: true }), p = f.panel(), c = p.ui.composer;
+  for (const [desired, density] of [[190, 'roomy'], [189, 'compact'], [150, 'compact'], [149, 'minimal']]) {
+    dragComposerTo(f, p, desired); f.doc.fire('pointerup'); f.flush();
+    assert.equal(c.area.getAttribute('data-pc-density'), density);
+    assert.equal(f.win.getComputedStyle(p.state.hint).display, density === 'roomy' ? 'block' : 'none');
+    assert.equal(f.win.getComputedStyle(p.state.modelRow).display, density === 'minimal' ? 'none' : 'block');
+    assert.equal(p.state.hint.hidden, false); assert.equal(p.state.modelRow.hidden, false);
+  }
+  assert.equal(p.state.hint.getBoundingClientRect().height, 0);
+  assert.equal(p.state.modelRow.getBoundingClientRect().height, 0);
+  const minimum = c.minimum;
+  p.state.modelRow.getBoundingClientRect = () => ({ width: 300, height: 9000 });
+  f.api.apply(f.plugin, p.state); assert.equal(c.minimum, minimum);
+  dragComposerTo(f, p, 240); f.doc.fire('pointerup');
+  assert.ok(c.minimum > minimum + 8000);
+});
+
+for (const [chatFont, systemFont] of [[24, 13], [13, 24], [18, 24]]) {
+  for (const zoom of [.75, 1.75]) test(`density uses larger font (${chatFont}/${systemFont}) independently of zoom ${zoom}`, () => {
+    const f = fixture({ composer: true, chatFont, systemFont, zoom, saved: 400 }), p = f.panel(), c = p.ui.composer;
+    const ratio = Math.max(chatFont, systemFont) / 13;
+    dragComposerTo(f, p, 180 * ratio);
+    assert.equal(c.area.getAttribute('data-pc-density'), 'compact');
+    assert.ok(Math.abs(densityValues(c)[4] - (1.6 - 60 / 130 * .4)) < .0001);
+    f.doc.fire('pointermove', { clientY: 400 + (p.ui.drag.height - 140 * ratio) * zoom, buttons: 1 });
+    assert.equal(c.area.getAttribute('data-pc-density'), 'minimal');
+    assert.ok(c.actual >= c.minimum);
+    assert.equal(f.win.getComputedStyle(c.input).fontSize, chatFont + 'px');
+    assert.equal(f.win.getComputedStyle(c.area).fontSize, systemFont + 'px');
+    assert.equal(p.panel.style.zoom, String(zoom)); assert.equal(p.ui.actual, 400);
+    f.doc.fire('pointermove', { clientY: 400 + (p.ui.drag.height - 240 * ratio) * zoom, buttons: 1 });
+    assert.equal(c.area.getAttribute('data-pc-density'), 'roomy');
+    assert.deepEqual(densityValues(c), [7, 10, 7, 12, 1.6, 2]);
+    f.doc.fire('pointerup'); f.flush();
+  });
+}
+
+test('selection, notice and important errors retain height in minimal density without restoring hidden rows', () => {
+  const f = fixture({ composer: true, savedHeight: 130, selection: true, error: true }), p = f.panel(), c = p.ui.composer;
+  const required = c.minimum;
+  assert.ok(required > 130); assert.equal(c.actual, required);
+  assert.equal(c.area.getAttribute('data-pc-density'), 'minimal');
+  assert.ok(p.state.selectionCard.getBoundingClientRect().height > 0);
+  assert.equal(p.state.selectionCard.hidden, false); assert.equal(p.state.error.hidden, false);
+  p.state.notice.hidden = false; f.resize(1200); f.flush();
+  assert.ok(c.minimum > required + 38); assert.equal(c.actual, c.minimum);
+  c.handle.fire('keydown', { key: 'ArrowDown' }); f.flush();
+  assert.equal(c.desired, 120); assert.equal(f.prefs[composerKey], 120);
+  assert.equal(c.area.getAttribute('data-pc-density'), 'minimal');
+  // Repeated gestures start from the request, not the larger content floor.
+  dragComposerTo(f, p, 115); f.doc.fire('pointerup'); f.flush();
+  assert.equal(c.desired, 115); assert.equal(f.prefs[composerKey], 115);
+  f.api.cleanup(p.state);
+  const q = f.panel(); assert.equal(q.ui.composer.area.getAttribute('data-pc-density'), 'minimal');
+  assert.equal(q.ui.composer.desired, 115);
+});
+
+test('available height selects density in short windows without feeding the content floor back into density', () => {
+  const f = fixture({ composer: true, selection: true, error: true }), p = f.panel(), c = p.ui.composer;
+  f.resizeHeight(240); f.flush();
+  assert.equal(c.area.getAttribute('data-pc-density'), 'minimal');
+  assert.ok(c.actual < c.minimum); assert.equal(c.actual, c.maximum);
+  const minimum = c.minimum, actual = c.actual;
+  for (let step = 0; step < 20; step++) { f.resizeHeight(240); f.flush(); }
+  assert.equal(c.minimum, minimum); assert.equal(c.actual, actual); assert.equal(c.desired, 240);
+  assert.equal(p.state.selectionCard.hidden, false); assert.equal(p.state.error.hidden, false);
+  f.resizeHeight(100); assert.equal(c.area.getAttribute('data-pc-density'), 'minimal');
+  assert.ok(c.actual >= 0 && c.actual < 100);
+  f.resizeHeight(800); assert.equal(c.area.getAttribute('data-pc-density'), 'roomy');
+  assert.equal(c.desired, 240); assert.equal(c.actual, Math.max(240, c.minimum));
+});
+
+test('density writes settle after mutation delivery and reapplying unchanged layout is idempotent', () => {
+  const f = fixture({ composer: true, savedHeight: 170 }), p = f.panel(), c = p.ui.composer;
+  f.flush();
+  const styleWrites = f.styleWrites, areaWrites = c.area.attributeWrites;
+  for (let count = 0; count < 20; count++) { f.api.apply(f.plugin, p.state); f.flush(); }
+  assert.equal(f.styleWrites, styleWrites); assert.equal(c.area.attributeWrites, areaWrites);
+  assert.equal(c.area.getAttribute('data-pc-density'), 'compact');
+  assert.ok([...f.mutations].every(observer => !observer.pending));
+});
+
+test('Escape restores density and cleanup restores original attribute, variable values and priorities', () => {
+  const originalVariables = { '--pc-compose-gap': { value: '9px', priority: 'important' },
+    '--pc-input-lines': { value: '3', priority: '' } };
+  const f = fixture({ composer: true, originalDensity: 'custom', originalVariables }), p = f.panel(), c = p.ui.composer;
+  dragComposerTo(f, p, 120); assert.equal(c.area.getAttribute('data-pc-density'), 'minimal');
+  f.doc.fire('keydown', { key: 'Escape' }); f.flush();
+  assert.equal(c.area.getAttribute('data-pc-density'), 'roomy'); assert.equal(c.desired, 240);
+  f.api.cleanup(p.state); f.api.cleanup(p.state);
+  assert.equal(c.area.getAttribute('data-pc-density'), 'custom');
+  for (const name of densityVariables) {
+    assert.equal(c.area.style.getPropertyValue(name), originalVariables[name]?.value || '');
+    assert.equal(c.area.style.getPropertyPriority(name), originalVariables[name]?.priority || '');
+  }
+  const g = fixture({ composer: true }), q = g.panel(); g.api.cleanup(q.state);
+  assert.equal(q.ui.composer.area.getAttribute('data-pc-density'), null);
+  for (const name of densityVariables) assert.equal(q.ui.composer.area.style.getPropertyValue(name), '');
 });

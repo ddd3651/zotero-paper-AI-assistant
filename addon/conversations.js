@@ -26,11 +26,11 @@ var PaperChatConversations = {
       .paper-chat-panel .pc-message[data-role=user]{width:fit-content;max-width:calc(100% - 35px);min-width:0;margin-left:auto;padding:10px 14px;border-radius:14px;background:color-mix(in srgb,currentColor 6%,transparent)}
       .paper-chat-panel .pc-message>.pc-plain,.paper-chat-panel .pc-message>.pc-markdown{display:block;flex:none;height:auto;min-height:0;max-height:none}
       .paper-chat-panel .pc-role{display:none}
-      .paper-chat-panel .pc-input-area{display:flex;flex-direction:column;flex:0 1 auto;min-width:0;min-height:0;padding:4px 14px 12px;gap:7px;overflow:visible}
-      .paper-chat-panel .pc-compose{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;margin:0;padding:10px;border:1px solid color-mix(in srgb,currentColor 16%,transparent);border-radius:12px;background:transparent;gap:7px;overflow:auto}
+      .paper-chat-panel .pc-input-area{display:flex;flex-direction:column;flex:0 1 auto;min-width:0;min-height:0;padding:4px 14px var(--pc-area-bottom,12px);gap:var(--pc-area-gap,7px);overflow:visible}
+      .paper-chat-panel .pc-compose{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;margin:0;padding:var(--pc-compose-padding,10px);border:1px solid color-mix(in srgb,currentColor 16%,transparent);border-radius:12px;background:transparent;gap:var(--pc-compose-gap,7px);overflow:auto}
       .paper-chat-panel .pc-compose>*{flex:0 0 auto;min-width:0}
-      .paper-chat-panel .pc-compose>textarea{flex:1 0 auto;height:auto;min-height:3.2em;max-height:none;resize:none;border:0;background:transparent;padding:0;overflow:auto}
-      .paper-chat-panel .pc-bottom{flex-wrap:wrap;gap:6px}
+      .paper-chat-panel .pc-compose>textarea{flex:1 0 auto;height:auto;min-height:calc(1em * var(--pc-input-lines,2) * var(--pc-input-line-height,1.6));max-height:none;resize:none;border:0;background:transparent;padding:0;overflow:auto;line-height:var(--pc-input-line-height,1.6)}
+      .paper-chat-panel .pc-bottom{flex-wrap:wrap;gap:var(--pc-compose-gap,6px)}
       .paper-chat-panel .pc-bottom>.pc-actions{margin-left:auto;flex-shrink:0}
       .paper-chat-panel .pc-bottom>.pc-hint{min-width:0;text-align:left;overflow-wrap:anywhere;white-space:normal}
       .paper-chat-panel .pc-composer-footer{position:relative;display:grid;grid-template-columns:28px minmax(0,1fr);align-items:start;gap:8px;flex:0 0 auto;min-height:0;min-width:0}
@@ -40,6 +40,12 @@ var PaperChatConversations = {
       .paper-chat-panel .pc-context-status:before{content:'';width:5px;height:5px;border-radius:50%;background:#40865f;flex:none}
       .paper-chat-panel .pc-context-status span:first-child{flex:1;min-width:0;overflow-wrap:anywhere}
       .paper-chat-panel .pc-context-status span:last-child{flex:none}
+      .paper-chat-panel .pc-input-area[data-pc-density=compact] .pc-compose .pc-hint,.paper-chat-panel .pc-input-area[data-pc-density=minimal] .pc-compose .pc-hint{display:none}
+      .paper-chat-panel .pc-input-area[data-pc-density=minimal] .pc-compose>.pc-model-row{display:none}
+      .paper-chat-panel .pc-input-area[data-pc-density=minimal] .pc-below-clear{flex-direction:row;align-items:center;justify-content:space-between;gap:8px}
+      .paper-chat-panel .pc-input-area[data-pc-density=minimal] .pc-context-status span:first-child{display:none}
+      .paper-chat-panel .pc-input-area[data-pc-density=minimal] .pc-selection{padding:4px 6px}
+      .paper-chat-panel .pc-input-area[data-pc-density=minimal] .pc-selection-text{max-height:2.4em}
       .paper-chat-panel .pc-composer-footer>.pc-settings-menu{bottom:calc(100% + 8px);left:0;right:0;grid-column:1 / -1}
       .paper-chat-panel .pc-input-area>.pc-status,.paper-chat-panel .pc-input-area>.pc-error{flex:0 0 auto;min-height:0;max-height:6em;overflow:auto;margin:0;font-size:var(--pc-system-font-size,13px);overflow-wrap:anywhere;white-space:pre-wrap}
       .paper-chat-panel .pc-input-area>.pc-status:empty{display:none}
@@ -61,6 +67,7 @@ var PaperChatConversations = {
     state.panel.append(style);
     state.welcome = welcome;
     const status = el('button', null, 'pc-context-status'); status.type = 'button'; status.setAttribute('aria-expanded', 'false');
+    status.setAttribute('aria-label', t('context.title'));
     const statusText = el('span', t('history.loading')), detail = el('span', t('context.details')); status.append(statusText, detail);
     const compose = state.input.parentElement;
     const notice = el('div', '', 'pc-status'); notice.setAttribute('role', 'status');
@@ -79,7 +86,10 @@ var PaperChatConversations = {
     if (state.settingsMenu) footer.append(state.settingsMenu);
     const actions = state.send?.parentElement, hint = compose.querySelector('.pc-hint');
     if (actions && hint) actions.before(hint);
-    area.append(footer, state.status, notice);
+    // Existing reader/progress code can still write this node; routine status
+    // messages no longer occupy a row below the composer. Keep errors/notices.
+    state.status.remove();
+    area.append(footer, notice);
     if (state.error?.ownerDocument) area.append(state.error);
     Object.assign(state, { compose, inputArea: area, composerFooter: footer });
     const drawer = (key) => {

@@ -238,7 +238,10 @@ test('composer footer places settings gear on left, clear above context, menu ou
   assert.equal(state.composerFooter, ui.footer);
   assert.deepEqual(ui.footer.children, [state.settingsButton, ui.belowClear, state.settingsMenu]);
   assert.deepEqual(ui.belowClear.children, [state.clear, ui.status]);
-  assert.deepEqual(ui.area.children, [ui.compose, ui.footer, state.status, ui.notice, state.error]);
+  assert.deepEqual(ui.area.children, [ui.compose, ui.footer, ui.notice, state.error]);
+  assert.equal(state.status.parentElement, null);
+  state.status.textContent = '已高亮引用原文';
+  assert.equal(state.status.parentElement, null, 'routine updates cannot recreate the removed footer row');
   assert.equal(state.settingsMenu.parentElement, ui.footer);
   assert.equal(state.input.parentElement, ui.compose);
   const bottom = ui.compose.querySelector('.pc-bottom');
