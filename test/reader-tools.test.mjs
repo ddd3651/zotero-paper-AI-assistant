@@ -168,6 +168,60 @@ test('highlight navigation and overlay use the active secondary PDF, then clear 
   assert.match(f.s.status.textContent, /未附可定位原文/);
 });
 
+test('reader navigation marshals dictionaries into the reader realm and actually moves the viewport', async () => {
+  const f = pdfFixture(), readerWindow = {}, converted = new WeakSet(), destinations = [];
+  f.s.reader._iframeWindow = readerWindow;
+  f.scope.Components.utils.cloneInto = (value, target) => {
+    // Rect painting crosses into the PDF iframe separately from PDFView methods.
+    if (Array.isArray(value)) return value;
+    assert.equal(target, readerWindow);
+    const result = structuredClone(value); converted.add(result); return result;
+  };
+  const viewer = f.primary._iframeWindow.PDFViewerApplication.pdfViewer;
+  viewer.currentPageNumber = 1; viewer.scrollTop = 0;
+  f.primary.navigate = async (location, options) => {
+    // Simulate the content boundary: privileged dictionaries are opaque, so a
+    // call-only mock would report success without moving the page or sentence.
+    if (!converted.has(location) || !converted.has(options)) return;
+    assert.equal(options.behavior, 'instant');
+    const pageIndex = location.position?.pageIndex ?? location.pageIndex;
+    viewer.currentPageNumber = pageIndex + 1;
+    viewer.scrollTop = pageIndex * 800 + (location.position ? 800 - location.position.rects[0][3] : 0);
+    destinations.push(viewer.scrollTop);
+  };
+  f.s.rawPageCache.set(3, { chars: chars('This is the exact source sentence.', 680) });
+  await f.reader.navigate(f.s, 3, { quote: 'This is the exact source sentence.' });
+  assert.equal(viewer.currentPageNumber, 3);
+  assert.equal(destinations.length, 2);
+  assert.ok(destinations[1] > destinations[0], 'sentence position must scroll beyond the target page top');
+  const sentenceTop = viewer.scrollTop;
+  await f.reader.navigate(f.s, 3, {});
+  assert.notEqual(viewer.scrollTop, sentenceTop, 'page-only citations still navigate on the same page');
+  assert.equal(viewer.currentPageNumber, 3);
+});
+
+test('navigation waits for the chosen PDF view and drops an older request before it can scroll', async () => {
+  const f = pdfFixture(); let ready;
+  f.primary.initializedPromise = new Promise(resolve => { ready = resolve; });
+  const older = f.reader.navigate(f.s, 3, {});
+  await Promise.resolve();
+  assert.equal(f.primary.calls.length, 0);
+  const newer = f.reader.navigate(f.s, 4, {});
+  ready(); await Promise.all([older, newer]);
+  assert.equal(f.primary.calls.length, 1);
+  assert.equal(f.primary.calls[0].pageIndex, 3);
+});
+
+test('closing a reader while waiting for initialization prevents later navigation', async () => {
+  const f = pdfFixture(); let ready;
+  f.primary.initializedPromise = new Promise(resolve => { ready = resolve; });
+  const pending = f.reader.navigate(f.s, 3, {});
+  f.s.reader._isTabClosed = true;
+  ready(); await pending;
+  assert.equal(f.primary.calls.length, 0);
+  assert.equal(f.primary.nodes.length, 0);
+});
+
 test('late page rendering repaints with visible success only after a layer is attached', async () => {
   const f = pdfFixture();
   f.primary.ready = false;

@@ -1,5 +1,67 @@
 /* Render Marked tokens as DOM nodes. Model text is never inserted as HTML. */
 var PaperChatMarkdown = {
+  cjkStrong(src, maskedSrc, prevChar, tokenizer) {
+    // Relax only double-star punctuation boundaries in CJK prose. Keep Marked's
+    // delimiter matching (including escaped/code/link masks) and its other syntax.
+    if (!src.startsWith('**') || src.startsWith('***')) return false;
+    let mask = maskedSrc.slice(-src.length);
+    const originalMask = mask;
+    // Marked masks code and links, but does not know our TeX extension. Stars
+    // inside a formula must not become the end of the surrounding bold span.
+    const formulas = /\\[([]|\$/g;
+    let match;
+    while ((match = formulas.exec(src))) {
+      const index = match.index;
+      if (PaperChatMath.escaped(src, index) || mask.slice(index, formulas.lastIndex) !== match[0]) continue;
+      const token = PaperChatMath.token(src.slice(index));
+      if (!token) continue;
+      mask = mask.slice(0, index) + 'a'.repeat(token.raw.length) + mask.slice(index + token.raw.length);
+      formulas.lastIndex = index + token.raw.length;
+    }
+    if (!/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(src)) return false;
+    const masked = mask.split('');
+    let changed = mask !== originalMask;
+    const relax = index => {
+      const char = mask[index];
+      // BMP punctuation keeps both UTF-16 offsets and code-point widths intact.
+      // Marked wraps protected code/links in brackets and masks escapes with ++.
+      // Treat those boundaries as content without exposing their literal stars.
+      if (!char || /[*_\\`$~]/.test(char)
+        || (!/\p{P}/u.test(char) && !(char === '+' && src[index] !== '+'))) return;
+      masked[index] = 'a';
+      changed = true;
+    };
+    for (let index = mask.indexOf('**'); index !== -1; index = mask.indexOf('**', index + 2)) {
+      if (mask[index - 1] === '*' || mask[index + 2] === '*') continue;
+      relax(index - 1);
+      relax(index + 2);
+    }
+    if (!changed) return false;
+    // The normalized strings are used only to find delimiter offsets. Tokenize
+    // the original body afterwards, so punctuation, escapes, URLs and TeX survive.
+    const probe = Object.create(tokenizer);
+    probe.lexer = { inlineTokens: () => [] };
+    const normalized = masked.join('');
+    const token = marked.Tokenizer.prototype.emStrong.call(probe, normalized, normalized, prevChar);
+    if (token?.type !== 'strong') return false;
+    const raw = src.slice(0, token.raw.length), text = raw.slice(2, -2);
+    return { type: 'strong', raw, text, tokens: tokenizer.lexer.inlineTokens(text) };
+  },
+
+  lex(text) {
+    if (!this.parser) {
+      PaperChatMath.lex('');
+      this.parser = new marked.Marked({ tokenizer: {
+        emStrong(src, maskedSrc, prevChar) {
+          return PaperChatMarkdown.cjkStrong(src, maskedSrc, prevChar, this);
+        },
+      } });
+      // Reuse the configured math extensions with our own tokenizer instance.
+      this.parser.setOptions({ ...PaperChatMath.parser.defaults, tokenizer: this.parser.defaults.tokenizer });
+    }
+    return this.parser.lexer(text);
+  },
+
   entityText(text) {
     return String(text || '').replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (whole, value) => {
       if (value[0] === '#') {
@@ -128,7 +190,7 @@ var PaperChatMarkdown = {
         }
       }
     };
-    blocks(fragment, PaperChatMath.lex(text));
+    blocks(fragment, this.lex(text));
     return fragment;
   },
 };

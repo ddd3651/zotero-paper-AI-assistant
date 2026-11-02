@@ -398,7 +398,7 @@ var PaperChat = {
     this.starting = (async () => {
       try {
         const info = await this.api('/status');
-        if (info.apiVersion === 5 && info.version === '0.6.3') return info;
+        if (info.apiVersion === 5 && info.version === '0.6.4') return info;
         await this.api('/shutdown', 'POST', {});
         await Zotero.Promise.delay(700);
       }

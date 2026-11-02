@@ -17,6 +17,23 @@ var PaperChatReader = {
     const last = internal._lastView;
     return last?._iframeWindow?.PDFViewerApplication ? last : this.view(state);
   },
+  async navigateView(state, view, location, serial) {
+    await view.initializedPromise;
+    if (serial !== state.navigationSerial || state.disposed || state.reader._isTabClosed) return false;
+    if (typeof view.navigate !== 'function') {
+      // The public bridge performs its own cross-compartment argument conversion.
+      await state.reader.navigate(location);
+    } else {
+      // PDFView methods run in the outer reader window, not the PDF iframe.
+      // Match Zotero's public ReaderInstance.navigate() boundary: unconverted
+      // privileged objects can be opaque to the content-side navigation code.
+      const target = state.reader._iframeWindow || view._iframeWindow;
+      const payload = Components.utils.cloneInto(location, target);
+      const options = Components.utils.cloneInto({ behavior: 'instant', block: 'center', inline: 'nearest' }, target);
+      await view.navigate(payload, options);
+    }
+    return serial === state.navigationSerial && !state.disposed && !state.reader._isTabClosed;
+  },
   matchQuote(chars, quote) {
     const matches = this.findQuoteMatches(chars, quote);
     return matches.length === 1 ? matches[0] : null;
@@ -211,9 +228,7 @@ var PaperChatReader = {
     state.error.textContent = '';
     const view = this.citationView(state);
     this.watchHighlightView(state, view);
-    const navigate = location => typeof view.navigate === 'function' ? view.navigate(location) : state.reader.navigate(location);
-    await navigate({ pageIndex: page - 1 });
-    if (serial !== state.navigationSerial || state.disposed) return;
+    if (!await this.navigateView(state, view, { pageIndex: page - 1 }, serial)) return;
     if (!details.quote) { state.status.textContent = PaperChatText.t("readerTools.text03"); return; }
     const data = await this.loadPage(state, page);
     const matches = this.findQuoteMatches(data.chars || [], details.quote);
@@ -234,8 +249,7 @@ var PaperChatReader = {
     state.status.textContent = PaperChatText.t("readerTools.format01", { page });
     // Scroll to a concrete sentence instead of the bounding box spanning both columns.
     // The persistent overlay below still displays every complete match on the page.
-    await navigate({ position: { pageIndex: page - 1, rects: matches[0].rects } });
-    if (serial !== state.navigationSerial || state.disposed) return;
+    if (!await this.navigateView(state, view, { position: { pageIndex: page - 1, rects: matches[0].rects } }, serial)) return;
     this.paintHighlight(state);
   },
 };

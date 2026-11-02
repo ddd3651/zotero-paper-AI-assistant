@@ -117,9 +117,15 @@ async function run(root) {
       const app = win?.PDFViewerApplication || win?.wrappedJSObject?.PDFViewerApplication;
       return app?.pdfViewer?.currentPageNumber === 2;
     });
-    await check('Citation highlighted matching source text in the real PDF', () => {
-      const layer = reader._internalReader._primaryView._iframeWindow.document.querySelector('[data-paper-chat-highlight]');
-      return layer?.children.length && [...layer.children].some(n => n.getBoundingClientRect().width > 0);
+    await check('Citation scrolls matching source text into the visible PDF viewport', () => {
+      const doc = reader._internalReader._primaryView._iframeWindow.document;
+      const layer = doc.querySelector('[data-paper-chat-highlight]');
+      const viewport = doc.getElementById('viewerContainer').getBoundingClientRect();
+      return layer?.children.length && [...layer.children].some(node => {
+        const rect = node.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 && rect.bottom > viewport.top && rect.top < viewport.bottom
+          && rect.right > viewport.left && rect.left < viewport.right;
+      });
     });
     await action('click', panel.querySelector('.pc-settings-trigger'));
     await check('Settings panel opens', () => !panel.querySelector('.pc-settings-menu').hidden);
