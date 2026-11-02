@@ -4,6 +4,7 @@ import argparse
 import base64
 import sys
 import json
+import re
 import os
 from pathlib import Path
 import shutil
@@ -45,7 +46,8 @@ def build_local(root, output):
                              str(root / 'bridge/config.json'), '--data-dir', str(data_dir)],
                             capture_output=True, text=True, encoding='utf-8')
     if result.returncode:
-        raise SystemExit('无法迁移本机配置或历史记录，原文件已保留。请检查数据目录和备份权限。')
+        code = re.search(r'\(([A-Z][A-Z0-9_]{1,40})\)\s*$', result.stderr)
+        raise SystemExit('无法迁移本机配置或历史记录，原文件已保留。请检查数据目录和备份权限。' + (' (' + code[1] + ')' if code else ''))
     paths = json.loads(result.stdout)
     config_path = Path(paths['configFile'])
     prepare = [node, str(root / 'bridge/paths.mjs'), '--prepare', str(config_path)]
