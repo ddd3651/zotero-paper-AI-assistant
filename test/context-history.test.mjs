@@ -63,31 +63,29 @@ test('UTF8 and JSON-aware excerpts fit Chinese, emoji and escaped evidence budge
     assert.equal(result.text, text.slice(result.sourceOffset, result.sourceOffset + result.text.length));
     assert.ok(!/[\uD800-\uDBFF]$/.test(result.text));
     assert.ok(!/^[\uDC00-\uDFFF]/.test(result.text));
-    const paper = { id: 'p', pageCount: 9, pages: [{ number: 6, text }] };
-    const selected = budgetPaper(paper, { question: '研究证据', currentPage: 6 }, 1800);
-    assert.ok(estimateTokens(JSON.stringify(selected)) <= 1800);
-    assert.equal(selected.pages[0].number, 6);
-    assert.ok(selected.pages[0].text.length > 50);
-    assert.equal(selected.sourceCoverage.partial, true);
-    assert.match(buildPrompt({ paper: selected, question: '总结全文' }, true), /不代表全文/);
+    const paper = { id: 'p', pageCount: 1, pages: [{ number: 1, text }] };
+    assert.throws(() => budgetPaper(paper, { question: '研究证据', currentPage: 1 }, 1800), error => {
+      assert.equal(error.code, 'batchRequired');
+      assert.ok(error.plan.batches.every(batch => estimateTokens(JSON.stringify(batch)) <= 1800));
+      assert.equal(error.plan.batches.flatMap(batch => batch.pages).map(page => page.text).join(''), text);
+      return true;
+    });
   }
 });
 
-test('huge Chinese/emoji paper is excerpted successfully and usage includes its source budget', async t => {
+test('500k default retains a complete Chinese/emoji paper and usage includes its source budget', async t => {
   const f = fixture(t);
   const text = '中文研究证据🧪\n"\\'.repeat(15000);
-  const job = await f.ask('总结全文，说明证据', { paper: { id: 'p', pageCount: 4, pages: [{ number: 2, text }] } });
+  const job = await f.ask('总结全文，说明证据', { currentPage: 1, paper: { id: 'p', pageCount: 1, pages: [{ number: 1, text }] } });
   assert.equal(job.status, 'completed', JSON.stringify(job));
   const call = f.calls.at(-1);
-  assert.ok(estimateTokens(call.prompt) + estimateTokens(call.instructions) + 4096 < 32768);
-  assert.match(call.prompt, /不代表全文/);
+  assert.ok(estimateTokens(call.prompt) + estimateTokens(call.instructions) + 4096 < 500000);
   const sources = JSON.parse(call.prompt.match(/<untrusted_paper>\n([\s\S]*?)\n<\/untrusted_paper>/)[1]);
-  assert.ok(sources.pages[0].text.length < text.length);
-  assert.ok(text.includes(sources.pages[0].text));
+  assert.equal(sources.pages[0].text, text);
   assert.ok(job.context.estimatedInputTokens > job.context.historyEstimatedTokens + 1000);
   const context = (await f.request('GET', '/conversations/' + job.conversationId + '/context')).body;
   assert.equal(context.estimatedTokens, job.context.estimatedInputTokens);
-  assert.equal(context.sourceCoverage.partial, true);
+  assert.equal(context.sourceCoverage.partial, false);
   await f.restart();
   const reopened = (await f.request('GET', '/conversations/' + job.conversationId + '/context')).body;
   assert.equal(reopened.estimatedTokens, context.estimatedTokens);
@@ -96,7 +94,7 @@ test('huge Chinese/emoji paper is excerpted successfully and usage includes its 
 });
 
 test('one oversized previous Chinese answer is compressible; pending question stays in exact context', async t => {
-  const f = fixture(t);
+  const f = fixture(t, { contextBudget: { contextWindow: 32768 } });
   f.setReply('很长的历史回答🧪'.repeat(6000));
   const first = await f.ask('旧问题：样本是否42？');
   assert.equal(first.status, 'completed');

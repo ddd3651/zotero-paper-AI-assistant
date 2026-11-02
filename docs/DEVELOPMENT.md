@@ -10,7 +10,21 @@
 2. 在 Zotero 的插件页面安装 XPI。
 3. 插件会自动启动服务。需要看服务输出时，运行 `npm start` 或双击生成的启动脚本。
 
-修改 `addon/` 后需要重新构建并安装。修改 `bridge/` 后需要重启本地服务。0.6.0起，对话自动保存在本机的`bridge/runtime/conversations/`，升级前可以备份这个目录。
+修改 `addon/` 后需要重新构建并安装。修改 `bridge/` 后需要重启本地服务。配置和历史保存在固定用户目录，位置与备份方式见下面的数据存放说明。
+
+## 数据存放与迁移
+
+macOS使用`~/Library/Application Support/Zotero Paper Chat/`，Windows使用`%APPDATA%\Zotero Paper Chat\`，Linux使用`$XDG_DATA_HOME/Zotero Paper Chat/`，未设置XDG时使用`~/.local/share/Zotero Paper Chat/`。`PAPER_CHAT_DATA_DIR`可覆盖默认位置，测试和CI应指向临时目录。
+
+`config.json`保存配置，`conversations/`保存完整对话与摘要，`runtime/`作为Codex工作目录，`backups/`保存原始旧配置。迁移只复制文件：先核对完整备份，再导入旧配置和历史；已有目标文件优先，旧文件保留。`migrations/`记录完成状态，避免用户删除的旧会话在每次启动时重新出现。失败时停止并保留原文件，完成之前不会写入成功标记，修复后可以重试。
+
+`bridge/paths.mjs`导出`resolveRuntimePaths(legacyConfigFile, {dataDir})`，返回`{dataDir, configFile, historyDir, runtimeDir, legacyHistoryDir}`。`dataDir`显式参数优先于环境变量。构建脚本通过它的CLI完成同一迁移：`node bridge/paths.mjs --resolve legacy-config-file --data-dir directory`。CLI只输出路径，不输出配置内容。迁移模块不会修改上下文容量或其他配置字段。
+
+服务只在main入口解析`--data-dir`、调用迁移函数，随后读取返回的`configFile`，将`historyDir`传入`createBridge`，将`runtimeDir`用于Codex工作目录。导入模块和直接调用测试用`createBridge({configFile: 临时路径, ...})`时，不进行全局目录迁移。安装包的`PaperChatConfig.dataDir`及生成启动器的`--data-dir`保持路径一致。
+
+迁移测试只使用临时目录与合成配置，不访问Zotero profile。POSIX中新建目录为0700、配置与备份文件为0600；Windows使用当前用户的APPDATA目录，文件权限仍受NTFS ACL控制。原子迁移通过临时文件与不覆盖目标的硬链接完成；数据目录所在文件系统需支持硬链接，例如NTFS。文件系统不支持时会停止迁移并保留原文件。
+
+源码打包与发布检查会排除当前固定数据目录，即使临时覆盖路径位于项目内，也会从扫描范围中移除。发布检查同时核对旧配置和固定配置中的已知连接令牌/API密钥，只报告命中的源码文件名。生成的XPI只包含连接所需的本机路径和令牌，不包含配置文件、API密钥、历史或备份。
 
 ## 默认提示词
 

@@ -1,9 +1,11 @@
 import { CodexClient } from '../bridge/codex.mjs';
 import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
-const configFile = fileURLToPath(new URL('../bridge/config.json', import.meta.url));
+import { resolveRuntimePaths } from '../bridge/paths.mjs';
+const paths = resolveRuntimePaths(fileURLToPath(new URL('../bridge/config.json', import.meta.url)));
+const configFile = paths.configFile;
 const config = existsSync(configFile) ? JSON.parse(readFileSync(configFile, 'utf8')) : {};
-const client = new CodexClient({ cwd: fileURLToPath(new URL('../bridge', import.meta.url)), networkProxy: config.codexNetworkProxy || '' });
+const client = new CodexClient({ cwd: paths.runtimeDir, networkProxy: config.codexNetworkProxy || '' });
 try {
   console.log('登录验证：', JSON.stringify(await client.start()));
   const models = await client.call('model/list', {});

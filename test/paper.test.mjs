@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
-import { validatePaperRequest, buildPrompt, contextHash } from '../bridge/paper.mjs';
+import { validatePaperRequest, buildPrompt, contextHash, MAX_PAPER_CHARS, MAX_REQUEST_BYTES } from '../bridge/paper.mjs';
 import { CodexClient } from '../bridge/codex.mjs';
 const ctx = createUIContext({});
 vm.runInContext(readFileSync(new URL('../addon/core.js', import.meta.url), 'utf8'), ctx);
@@ -25,7 +25,7 @@ test('reject malformed, duplicate, out-of-range and scan-only pages', () => {
   }
 });
 test('full text is never silently truncated and oversize inputs fail visibly', () => {
-  const b = body(); b.paper.pages[0].text = 'x'.repeat(400001);
+  const b = body(); b.paper.pages[0].text = 'x'.repeat(MAX_PAPER_CHARS + 1);
   assert.throws(() => validatePaperRequest(b), /上限/);
 });
 test('followups omit unchanged paper but carry selection and question', () => {
@@ -45,4 +45,13 @@ test('API-key and logged-out accounts cannot start a generation', async () => {
     await assert.rejects(client.ask({ prompt: 'test' }), /不会使用\s*API Key/);
     assert.deepEqual(called, ['account/read']);
   }
+});
+
+test('longer payloads preserve all source text up to the explicit safety bound', () => {
+  const b = body(); b.paper.pages[0].text = '证'.repeat(MAX_PAPER_CHARS);
+  assert.equal(validatePaperRequest(b).paper.pages[0].text.length, MAX_PAPER_CHARS);
+  assert.equal(MAX_REQUEST_BYTES, 10000000);
+  b.paper.pageCount = 1001;
+  b.paper.pages = Array.from({ length: 1001 }, (_, i) => ({ number: i + 1, text: 'evidence' }));
+  assert.equal(validatePaperRequest(b).paper.pages.length, 1001);
 });

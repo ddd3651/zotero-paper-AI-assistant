@@ -13,19 +13,30 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'scripts'))
 import build
-from project_files import project_files, audit_files
+from project_files import project_files, audit_files, user_data_dir
 
 
 class PackagingTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name) / 'project'
+        self.root.mkdir()
+        self.data_dir = Path(self.temp.name) / 'private-data'
+        self.node = build.shutil.which('node')
+        if not self.node:
+            self.node = str(Path.home() / '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node')
+        for target in ['build.user_data_dir', 'project_files.user_data_dir']:
+            patched = patch(target, return_value=self.data_dir)
+            patched.start()
+            self.addCleanup(patched.stop)
         self.write('package.json', json.dumps({'version': '1.2.3'}))
         self.write('addon/manifest.json', json.dumps({'version': '1.2.3'}))
         self.write('addon/bootstrap.js', '// addon\n')
         self.write('addon/vendor/katex-LICENSE', 'Vendor license\n')
         self.write('bridge/server.mjs', '// server\n')
+        migration_source = Path(__file__).resolve().parent.parent / 'bridge/paths.mjs'
+        self.write('bridge/paths.mjs', migration_source.read_text(encoding='utf-8'))
         self.write('bridge/prompts/default.md', '默认提示词：根据论文回答。\n')
         self.write('README.md', '# Example\n')
 
@@ -54,15 +65,16 @@ class PackagingTest(unittest.TestCase):
         self.assertEqual(json.loads((self.root / 'bridge/config.json').read_text()), private)
 
     def test_local_build_creates_private_config_and_preserves_existing_settings(self):
-        with patch.object(build.shutil, 'which', return_value='/usr/bin/node'), patch.dict(build.os.environ, {}, clear=True):
+        with patch.object(build.shutil, 'which', return_value=self.node), patch.dict(build.os.environ, {}, clear=True):
             xpi = build.build_local(self.root, self.root / 'dist')
-            config_path = self.root / 'bridge/config.json'
+            config_path = self.data_dir / 'config.json'
+            self.assertFalse((self.root / 'bridge/config.json').exists())
             config = json.loads(config_path.read_text())
             self.assertEqual(len(config['token']), 64)
             if os.name != 'nt':
                 self.assertEqual(stat.S_IMODE(config_path.stat().st_mode), 0o600)
             config.update(model='selected-model', customPrompt='retained', external={'apiKey': 'local-fixture-key'})
-            self.write('bridge/config.json', json.dumps(config))
+            config_path.write_text(json.dumps(config), encoding='utf-8')
             self.write('addon/config.js', 'stale-file-must-not-be-packed')
             build.build_local(self.root, self.root / 'dist')
             self.assertEqual(json.loads(config_path.read_text()), config)
@@ -77,7 +89,7 @@ class PackagingTest(unittest.TestCase):
         text = {'metadata': {'name': 'My Reader', 'description': 'Custom description'},
                 'common': {'send': 'Ask'}}
         self.write('addon/ui-text.json', json.dumps(text))
-        with patch.dict(os.environ, {}, clear=True), patch('shutil.which', return_value=sys.executable):
+        with patch.dict(os.environ, {}, clear=True), patch('shutil.which', return_value=self.node):
             xpi = build.build_local(self.root, self.root / 'dist')
         with zipfile.ZipFile(xpi) as zipped:
             manifest = json.loads(zipped.read('manifest.json'))
@@ -103,6 +115,159 @@ class PackagingTest(unittest.TestCase):
         self.assertEqual(launcher.name, '启动伴读服务.command')
         self.assertIn("exec '/tmp/Node App/node' bridge/server.mjs", launcher.read_text(encoding='utf-8'))
         self.assertTrue(launcher.read_text(encoding='utf-8').startswith('#!/bin/zsh\n'))
+
+    def test_first_build_backs_up_full_legacy_config_and_histories_without_changing_originals(self):
+        raw = ('{\r\n "port": 23456, "token": "fixture-token", "model": "manual-model", '
+               '"reasoningEffort": "high", "customPrompt": "保留提示词", '
+               '"contextBudget": {"contextWindow": 65432}, '
+               '"codexNetworkProxy": "http://localhost:9000", '
+               '"external": {"apiKey": "fixture-key"}, "unknown": {"future": true}\r\n}\r\n').encode('utf-8')
+        legacy = self.root / 'bridge/config.json'
+        legacy.write_bytes(raw)
+        self.write('bridge/runtime/conversations/chat.json', 'fixture-history')
+        with patch.object(build.shutil, 'which', return_value=self.node), patch.dict(os.environ, {'HTTPS_PROXY': 'http://localhost:8888'}, clear=True):
+            xpi = build.build_local(self.root, self.root / 'dist')
+            build.build_local(self.root, self.root / 'dist')
+        self.assertEqual(legacy.read_bytes(), raw)
+        self.assertEqual((self.data_dir / 'config.json').read_bytes(), raw)
+        backups = list((self.data_dir / 'backups').glob('*.json'))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_bytes(), raw)
+        self.assertEqual((self.data_dir / 'conversations/chat.json').read_text(), 'fixture-history')
+        self.assertEqual((self.root / 'bridge/runtime/conversations/chat.json').read_text(), 'fixture-history')
+        with zipfile.ZipFile(xpi) as zipped:
+            settings = json.loads(zipped.read('config.js').decode().split(' = ', 1)[1].rstrip(';\n'))
+            self.assertEqual(settings['dataDir'], str(self.data_dir))
+            self.assertEqual(settings['url'], 'http://127.0.0.1:23456')
+            self.assertEqual(settings['token'], 'fixture-token')
+            self.assertNotIn('fixture-key', zipped.read('config.js').decode())
+            self.assertFalse(any('backups/' in name or 'conversations/' in name for name in zipped.namelist()))
+
+    def test_fixed_settings_win_over_a_new_project_legacy_configuration(self):
+        self.data_dir.mkdir()
+        fixed = {'token': 'already-saved', 'port': 23457, 'external': {'apiKey': 'saved-api'},
+                 'unknown': 'untouched', 'contextBudget': {'contextWindow': 87654}}
+        (self.data_dir / 'config.json').write_text(json.dumps(fixed), encoding='utf-8')
+        self.write('bridge/config.json', json.dumps({'token': 'stale', 'port': 23458}))
+        with patch.object(build.shutil, 'which', return_value=self.node), patch.dict(os.environ, {}, clear=True):
+            build.build_local(self.root, self.root / 'dist')
+        self.assertEqual(json.loads((self.data_dir / 'config.json').read_text()), fixed)
+
+    def test_failed_backup_stops_build_without_creating_replacement_credentials(self):
+        self.write('bridge/config.json', '{"token":"keep-fixture","port":23127}')
+        self.data_dir.mkdir()
+        (self.data_dir / 'backups').write_text('blocked', encoding='utf-8')
+        with patch.object(build.shutil, 'which', return_value=self.node):
+            with self.assertRaisesRegex(SystemExit, '原文件已保留'):
+                build.build_local(self.root, self.root / 'dist')
+        self.assertFalse((self.data_dir / 'config.json').exists())
+        self.assertFalse((self.root / 'dist').exists())
+        self.assertEqual(json.loads((self.root / 'bridge/config.json').read_text())['token'], 'keep-fixture')
+
+    def test_launchers_pass_explicit_data_dir_as_one_literal_argument(self):
+        data = self.root / "用户数据 & 100% ! 'space"
+        launcher = build.write_launcher(self.root, '/tmp/node', 'win32', data_dir=data)
+        encoded = launcher.read_text().split('-EncodedCommand ')[1].split()[0]
+        command = base64.b64decode(encoded).decode('utf-16le')
+        self.assertIn("'--data-dir' '" + str(data).replace("'", "''") + "'", command)
+        launcher = build.write_launcher(self.root, '/tmp/node', 'darwin', data_dir=data)
+        import shlex
+        args = shlex.split(launcher.read_text(encoding='utf-8').splitlines()[-1])
+        self.assertEqual(args[-2:], ['--data-dir', str(data)])
+
+    def test_fixed_data_inside_source_is_rejected_before_build_or_migration(self):
+        data = self.root / 'addon' / 'private-data'
+        with patch('build.user_data_dir', return_value=data), patch('project_files.user_data_dir', return_value=data):
+            data.mkdir(parents=True)
+            (data / 'config.json').write_text(json.dumps({'token': 'private-fixture-token', 'port': 23456}), encoding='utf-8')
+            (data / 'arbitrary.json').write_text('DO-NOT-PUBLISH-FIXTURE', encoding='utf-8')
+            with patch.object(build.shutil, 'which', return_value=self.node), patch.dict(os.environ, {}, clear=True):
+                with self.assertRaisesRegex(SystemExit, '不能相互嵌套'):
+                    build.build_local(self.root, self.root / 'dist')
+            self.assertFalse((self.root / 'dist').exists())
+            source = build.build_source(self.root, self.root / 'dist')
+            with zipfile.ZipFile(source) as zipped:
+                self.assertFalse(any('/private-data/' in name for name in zipped.namelist()))
+
+    def test_source_as_data_directory_or_below_data_directory_is_rejected(self):
+        for data in [self.root, self.root.parent]:
+            with patch('build.user_data_dir', return_value=data), patch.object(build.shutil, 'which', return_value=self.node):
+                with self.assertRaisesRegex(SystemExit, '不能相互嵌套'):
+                    build.build_local(self.root, self.root / 'dist')
+
+    def test_old_override_configs_backups_and_all_runtime_trees_never_enter_packages(self):
+        private = [
+            'addon/old-user-data/config.json',
+            'addon/old-user-data/CONFIG.JSON',
+            'addon/old-user-data/config.json.abcd.tmp',
+            'addon/old-user-data/config.json.lock/owner.json',
+            'addon/old-user-data/backups/defaults.json',
+            'addon/old-user-data/migrations/receipt.json',
+            'addon/old-user-data/runtime/log.txt',
+            'addon/old-user-data/conversations/chat.json',
+            'bridge/former-override/config.json',
+            'bridge/former-override/backups/config-copy.json',
+            'bridge/former-override/runtime/conversations/history.json',
+            'docs/backup-copy/config.json',
+        ]
+        for name in private:
+            self.write(name, 'OLD-DIRECTORY-PRIVATE-CANARY')
+        with patch.object(build.shutil, 'which', return_value=self.node), patch.dict(os.environ, {}, clear=True):
+            xpi = build.build_local(self.root, self.root / 'dist')
+        source = build.build_source(self.root, self.root / 'dist')
+        for archive in [xpi, source]:
+            with zipfile.ZipFile(archive) as zipped:
+                for name in zipped.namelist():
+                    self.assertNotIn(b'OLD-DIRECTORY-PRIVATE-CANARY', zipped.read(name))
+        for name in private:
+            self.assertEqual((self.root / name).read_text(), 'OLD-DIRECTORY-PRIVATE-CANARY')
+
+    def test_build_calls_prepare_and_never_rewrites_a_python_snapshot(self):
+        self.data_dir.mkdir()
+        fixed = {'token': 'fixture-keep', 'port': 23457, 'unknown': {'retained': True}}
+        path = self.data_dir / 'config.json'
+        path.write_text(json.dumps(fixed), encoding='utf-8')
+        run = build.subprocess.run
+        operations = []
+
+        def intercept(args, **kwargs):
+            result = run(args, **kwargs)
+            operations.append(args[2])
+            if args[2] == '--prepare':
+                # Simulate an intervening settings save after prepare exits.
+                latest = json.loads(path.read_text())
+                latest['customPrompt'] = 'freshly saved synthetic prompt'
+                path.write_text(json.dumps(latest), encoding='utf-8')
+            return result
+
+        with patch.object(build.shutil, 'which', return_value=self.node), patch.object(build.subprocess, 'run', side_effect=intercept), patch.dict(os.environ, {}, clear=True):
+            build.build_local(self.root, self.root / 'dist')
+        self.assertEqual(operations, ['--resolve', '--prepare'])
+        actual = json.loads(path.read_text())
+        self.assertEqual(actual, {**fixed, 'customPrompt': 'freshly saved synthetic prompt'})
+
+    def test_audit_checks_both_fixed_and_legacy_credentials_without_printing_them(self):
+        self.data_dir.mkdir()
+        (self.data_dir / 'config.json').write_text(json.dumps({'token': 'new-private-token', 'external': {'apiKey': 'new-private-api'}}), encoding='utf-8')
+        self.write('bridge/config.json', json.dumps({'token': 'old-private-token'}))
+        for secret in ['new-private-token', 'new-private-api', 'old-private-token']:
+            self.write('addon/leak.js', secret)
+            with self.assertRaisesRegex(ValueError, 'addon/leak.js') as caught:
+                audit_files(self.root, project_files(self.root))
+            self.assertNotIn(secret, str(caught.exception))
+
+    def test_data_directory_selection_override_matches_node_on_current_platform(self):
+        import subprocess
+        expected = self.root / "数据 & ! % 'space"
+        env = {'PAPER_CHAT_DATA_DIR': str(expected)}
+        # Call the unpatched imported selector; build and audit selectors stay
+        # isolated through setUp even if this assertion fails.
+        self.assertEqual(user_data_dir(environ=env), expected.resolve())
+        code = ('import {defaultDataDir} from ' + json.dumps((self.root / 'bridge/paths.mjs').as_uri())
+                + '; console.log(defaultDataDir());')
+        result = subprocess.run([self.node, '--input-type=module', '-e', code],
+                                env={**os.environ, **env}, capture_output=True, text=True, encoding='utf-8', check=True)
+        self.assertEqual(Path(result.stdout.strip()).resolve(), expected.resolve())
 
     def test_audit_rejects_windows_native_and_json_escaped_home(self):
         home = Path('C:/Users/fixture')

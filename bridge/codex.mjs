@@ -65,7 +65,7 @@ export class CodexClient extends EventEmitter {
       catch (error) { this.emit('diagnostic', error.message); }
     });
     await this.call('initialize', {
-      clientInfo: { name: 'zotero_paper_chat', title: 'Zotero Paper Chat', version: '0.6.5' },
+      clientInfo: { name: 'zotero_paper_chat', title: 'Zotero Paper Chat', version: '0.7.0' },
     });
     this.send({ method: 'initialized', params: {} });
     const { account } = await this.call('account/read', { refreshToken: false });
@@ -101,7 +101,8 @@ export class CodexClient extends EventEmitter {
       if (!pending) return;
       clearTimeout(pending.timer);
       this.pending.delete(message.id);
-      if (message.error) pending.reject(new Error(message.error.message));
+      if (message.error) pending.reject(Object.assign(new Error(message.error.message),
+        /context[_ -]?window[_ -]?exceeded/i.test(message.error.data?.codexErrorInfo?.type || message.error.data?.codexErrorInfo || '') ? { contextOverflow: true } : {}));
       else pending.resolve(message.result);
       return;
     }
@@ -143,7 +144,8 @@ export class CodexClient extends EventEmitter {
       clearTimeout(job.timer);
       this.jobs.delete(params.threadId);
       if (params.turn.status !== 'completed') {
-        job.reject(new Error(params.turn.error?.message || t("errors.codex.format03", {value1: (params.turn.status === 'interrupted' ? t("errors.codex.text01") : t("errors.codex.text02"))})));
+        job.reject(Object.assign(new Error(params.turn.error?.message || t("errors.codex.format03", {value1: (params.turn.status === 'interrupted' ? t("errors.codex.text01") : t("errors.codex.text02"))})),
+          /context[_ -]?window[_ -]?exceeded/i.test(params.turn.error?.codexErrorInfo?.type || params.turn.error?.codexErrorInfo || '') ? { contextOverflow: true } : {}));
       } else job.resolve([...job.messages.values()].join('\n'));
     }
   }

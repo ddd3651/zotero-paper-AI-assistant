@@ -275,6 +275,13 @@
       "saveFailed": "历史对话保存失败，请重试",
       "invalidImport": "旧对话导入数据无效，原始快照已保留"
     },
+    "reading": {
+      "invalidBudget": "论文阅读预算无效",
+      "missingPages": "论文原文页不完整，请重新打开论文后重试",
+      "batchRequired": "论文需要分批读取",
+      "budgetTooSmall": "模型容量不足以读取论文，请检查上下文设置",
+      "invalidNotes": "论文分批阅读未返回有效内容，请重试"
+    },
     "context": {
       "invalidBudget": "上下文预算设置无效",
       "insufficientBudget": "上下文预算不足，请增加容量或减少预留空间",
@@ -314,7 +321,7 @@
     "details": "详情 ›",
     "estimatedUsage": "估算上下文占用",
     "capacity": "配置的上下文预算（tokens，非模型实测容量）",
-    "unknownCapacity": "留空恢复默认32768",
+    "unknownCapacity": "留空恢复默认500000",
     "saveCapacity": "保存容量",
     "invalidCapacity": "请输入16384至2000000之间的整数，或留空恢复默认。",
     "compact": "现在整理",

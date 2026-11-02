@@ -6,22 +6,13 @@ import sys
 import json
 import os
 from pathlib import Path
-import secrets
 import shutil
-import tempfile
+import subprocess
 from urllib.parse import urlsplit
 import zipfile
-from project_files import project_files, audit_files
+from project_files import project_files, audit_files, user_data_dir, inside, private_path
 
 ROOT = Path(__file__).resolve().parent.parent
-
-
-def write_config(path, config):
-    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as saved:
-        json.dump(config, saved, indent=2, ensure_ascii=False)
-        saved.write('\n')
-    os.replace(saved.name, path)
-    path.chmod(0o600)
 
 
 def local_proxy(environ):
@@ -45,16 +36,34 @@ def build_local(root, output):
             node = str(bundled)
     if not node:
         raise SystemExit('找不到 Node.js。请先安装 Node.js 22 或更新版本，再重新打包。')
-    config_path = root / 'bridge/config.json'
-    config = json.loads(config_path.read_text(encoding='utf-8')) if config_path.exists() else {
-        'port': 23127, 'token': secrets.token_hex(32),
-    }
+    data_dir = user_data_dir()
+    if inside(root, data_dir) or inside(data_dir, root):
+        raise SystemExit('数据目录与源码目录不能相互嵌套，请另设PAPER_CHAT_DATA_DIR。')
+    # One migration implementation is shared with server MAIN. Pass separate
+    # arguments throughout, including Windows paths with Unicode/metacharacters.
+    result = subprocess.run([node, str(root / 'bridge/paths.mjs'), '--resolve',
+                             str(root / 'bridge/config.json'), '--data-dir', str(data_dir)],
+                            capture_output=True, text=True, encoding='utf-8')
+    if result.returncode:
+        raise SystemExit('无法迁移本机配置或历史记录，原文件已保留。请检查数据目录和备份权限。')
+    paths = json.loads(result.stdout)
+    config_path = Path(paths['configFile'])
+    prepare = [node, str(root / 'bridge/paths.mjs'), '--prepare', str(config_path)]
     proxy = local_proxy(os.environ)
     if proxy:
-        config['codexNetworkProxy'] = proxy
-    write_config(config_path, config)
+        prepare.extend(['--proxy', proxy])
+    prepared = subprocess.run(prepare, capture_output=True, text=True, encoding='utf-8')
+    if prepared.returncode:
+        raise SystemExit('无法准备本机配置，原文件已保留。请检查配置格式、数据目录或稍后重试。')
+    try:
+        config = json.loads(config_path.read_bytes())
+        if not isinstance(config, dict):
+            raise ValueError()
+    except (ValueError, OSError):
+        raise SystemExit('本机配置格式错误或无法读取，已停止打包并保留原文件。') from None
     settings = {'url': f'http://127.0.0.1:{config["port"]}', 'token': config['token'],
                 'node': str(Path(node).resolve()), 'server': str(root / 'bridge/server.mjs'),
+                'dataDir': str(data_dir),
                 'launcher': '启动伴读服务.cmd' if sys.platform == 'win32' else '启动伴读服务.command'}
     manifest = json.loads((root / 'addon/manifest.json').read_text(encoding='utf-8'))
     text_path = root / 'addon/ui-text.json'
@@ -65,7 +74,9 @@ def build_local(root, output):
     xpi = output / f'zotero-paper-chat-{version}.xpi'
     with zipfile.ZipFile(xpi, 'w', zipfile.ZIP_DEFLATED) as archive:
         for path in sorted((root / 'addon').rglob('*')):
-            if path.is_file() and path.name != 'config.js' and not path.name.startswith('.'):
+            if (path.is_file() and not inside(path, data_dir)
+                    and not private_path(path.relative_to(root))
+                    and path.name != 'config.js' and not path.name.startswith('.')):
                 if path.is_symlink():
                     raise SystemExit('安装包中不能包含符号链接：' + str(path.relative_to(root)))
                 if path.name == 'manifest.json' and path.parent == root / 'addon':
@@ -73,11 +84,11 @@ def build_local(root, output):
                 else:
                     archive.write(path, path.relative_to(root / 'addon').as_posix())
         archive.writestr('config.js', 'var PaperChatConfig = ' + json.dumps(settings, ensure_ascii=False) + ';\n')
-    write_launcher(root, node)
+    write_launcher(root, node, data_dir=data_dir)
     return xpi
 
 
-def write_launcher(root, node, platform=None):
+def write_launcher(root, node, platform=None, data_dir=None):
     platform = platform or sys.platform
     if platform == 'win32':
         # Encode PowerShell's literal arguments: cmd.exe must never expand path
@@ -86,6 +97,7 @@ def write_launcher(root, node, platform=None):
             return "'" + str(value).replace("'", "''") + "'"
         command = ("Set-Location -LiteralPath " + quote(root) + "; & "
                    + quote(node) + " " + quote(root / 'bridge/server.mjs')
+                   + (" '--data-dir' " + quote(data_dir) if data_dir is not None else '')
                    + "; exit $LASTEXITCODE")
         encoded = base64.b64encode(command.encode('utf-16le')).decode('ascii')
         launcher = root / '启动伴读服务.cmd'
@@ -97,7 +109,9 @@ def write_launcher(root, node, platform=None):
             return "'" + str(value).replace("'", "'\\''") + "'"
         launcher = root / '启动伴读服务.command'
         launcher.write_text('#!/bin/zsh\ncd ' + quote(root) + '\nexec '
-                            + quote(node) + ' bridge/server.mjs\n', encoding='utf-8')
+                            + quote(node) + ' bridge/server.mjs'
+                            + (' --data-dir ' + quote(data_dir) if data_dir is not None else '')
+                            + '\n', encoding='utf-8')
         launcher.chmod(0o755)
     return launcher
 

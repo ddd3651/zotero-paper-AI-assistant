@@ -1,4 +1,6 @@
 import { t } from './ui-text.mjs';
+import { MAX_PAPER_CHARS } from './reading.mjs';
+export { MAX_PAPER_CHARS, MAX_REQUEST_BYTES } from './reading.mjs';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
@@ -10,14 +12,14 @@ export function validatePaperRequest(body) {
   if (typeof question !== 'string' || !question.trim() || question.length > 16000) throw new Error(t("errors.paper.error02"));
   if (!paper || typeof paper.id !== 'string' || paper.id.length > 160 || !Array.isArray(paper.pages)) throw new Error(t("errors.paper.error03"));
   if (!Number.isSafeInteger(paper.pageCount) || paper.pageCount < 1 || paper.pageCount > 10000) throw new Error(t("errors.paper.error04"));
-  if (paper.pages.length < 1 || paper.pages.length > 1000) throw new Error(t("errors.paper.error05"));
+  if (paper.pages.length < 1 || paper.pages.length > 10000) throw new Error(t("errors.paper.error05"));
   const seen = new Set();
   let chars = 0;
   for (const p of paper.pages) {
     if (!Number.isSafeInteger(p.number) || p.number < 1 || p.number > paper.pageCount || seen.has(p.number) || typeof p.text !== 'string') throw new Error(t("errors.paper.error06"));
     seen.add(p.number); chars += p.text.length;
   }
-  if (chars > 400000) throw new Error(t("errors.paper.error07"));
+  if (chars > MAX_PAPER_CHARS) throw new Error(t("errors.paper.error07"));
   if (paper.pages.every(p => !p.text.trim())) throw new Error(t("errors.paper.error08"));
   if (body.selection != null && (typeof body.selection !== 'string' || body.selection.length > 30000)) throw new Error(t("errors.paper.error09"));
   if (body.selectionPage != null && (!Number.isSafeInteger(body.selectionPage) || body.selectionPage < 1 || body.selectionPage > paper.pageCount)) throw new Error(t("errors.paper.error10"));
@@ -34,6 +36,7 @@ export function contextHash(paper) {
 
 export function buildPrompt(body, includePaper) {
   const parts = [];
+  if (includePaper && body.paper.sourceCoverage?.batchRead) parts.push('此前已分批读取sourceCoverage.readPages列出的页面。当前pages仅为逐字原文摘录，阅读摘要另附。逐字引用只能从当前原文摘录提取；摘要只用于综合理解，不得当作原文逐字引用。');
   if (includePaper && body.paper.sourceCoverage?.partial) parts.push('本次仅提供部分论文页或原文片段，不代表全文。回答须说明依据范围；全文总结请求应说明覆盖不足，不能把未提供的页面当作已阅读。');
   if (includePaper) parts.push('下方 JSON 是论文资料，pages.number 为从 1 开始的 PDF 物理页码。\n<untrusted_paper>\n' + JSON.stringify({
     title: body.paper.title, pageCount: body.paper.pageCount, pages: body.paper.pages,

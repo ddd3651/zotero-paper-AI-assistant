@@ -1,4 +1,24 @@
 import { t } from './ui-text.mjs';
+import { contextFailure } from './provider-capacity.mjs';
+
+async function capacityHint(response) {
+  if (![400, 413, 422].includes(response.status) || !response.body?.getReader) return {};
+  const reader = response.body.getReader();
+  try {
+    const chunks = []; let length = 0;
+    while (length < 16384) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const part = value.subarray(0, 16384 - length); chunks.push(part); length += part.length;
+    }
+    const text = Buffer.concat(chunks).toString('utf8');
+    let parsed; try { parsed = JSON.parse(text); } catch { return {}; }
+    const failure = contextFailure((parsed.error?.message || parsed.message || '') + ' ' + (parsed.error?.code || parsed.code || ''));
+    // Only numeric capacity/overflow flags survive. Never expose the upstream body.
+    return failure.overflow ? { contextOverflow: true, ...(failure.capacity ? { contextCapacity: failure.capacity } : {}) } : {};
+  } catch { return {}; }
+  finally { await reader.cancel().catch(() => {}); }
+}
 function externalError(message) {
   const error = new Error(message);
   error.name = 'PaperChatExternalError';
@@ -55,8 +75,9 @@ export async function askExternal({ baseUrl, model, apiKey, messages, signal, on
       body: JSON.stringify({ model: settings.model, messages, stream, ...(maxTokens ? { max_tokens: maxTokens } : {}) }),
     });
     if (!response.ok) {
-      await response.body?.cancel();
-      throw externalError(t("errors.external.format01", {value1: (response.status)}));
+      const hint = await capacityHint(response);
+      if (!response.body?.locked) await response.body?.cancel().catch(() => {});
+      throw Object.assign(externalError(t("errors.external.format01", {value1: (response.status)})), hint);
     }
     let text = '';
     const append = value => { if (typeof value === 'string') { text += value; onDelta?.(value); } };
@@ -99,7 +120,8 @@ export async function askExternal({ baseUrl, model, apiKey, messages, signal, on
     return { text };
   } catch (error) {
     if (controller.signal.aborted) throw new Error(timedOut ? t("errors.external.text02") : t("errors.external.text03"));
-    if (error.name === 'PaperChatExternalError') throw new Error(redactError(error, [apiKey]));
+    if (error.name === 'PaperChatExternalError') throw Object.assign(new Error(redactError(error, [apiKey])),
+      error.contextOverflow ? { contextOverflow: true, ...(error.contextCapacity ? { contextCapacity: error.contextCapacity } : {}) } : {});
     throw externalError(t("errors.external.error09"));
   } finally {
     clearTimeout(timer);

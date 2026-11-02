@@ -134,7 +134,7 @@ var PaperChatConversations = {
       const value = capacity.value.trim(), number = Number(value);
       if (value && (!Number.isInteger(number) || number < 16384 || number > 2000000)) throw new Error(t('context.invalidCapacity'));
       const current = await plugin.api('/settings');
-      const result = await plugin.api('/settings', 'POST', { contextBudget: { ...current.current.contextBudget, contextWindow: value ? number : 32768 } });
+      const result = await plugin.api('/settings', 'POST', { contextBudget: { ...current.current.contextBudget, contextWindow: value ? number : 500000 } });
       plugin.applySettings(result);
       await this.refreshContext(plugin, state);
     }));

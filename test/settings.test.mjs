@@ -286,10 +286,11 @@ test('large explicit context budgets retain cached original pages within the sou
     customPrompt: 'style-three', paper: { ...paper, pages: [{ number: 3, text: 'c'.repeat(50000) }] },
   }));
   const cached = sentPaper(f).pages;
-  assert.deepEqual(cached.map(page => page.number), [1, 3]);
-  assert.equal(cached.reduce((sum, page) => sum + page.text.length, 0), 250000);
+  assert.deepEqual(cached.map(page => page.number), [1, 2, 3]);
+  assert.equal(cached.reduce((sum, page) => sum + page.text.length, 0), 450000);
   assert.equal(cached[0].text, paper.pages[0].text);
-  assert.equal(cached[1].text, 'c'.repeat(50000));
+  assert.equal(cached[1].text, paper.pages[1].text);
+  assert.equal(cached[2].text, 'c'.repeat(50000));
 });
 
 test('per-request overrides and whitespace clearing take effect without persisting to settings', async t => {
@@ -345,7 +346,7 @@ test('/status reports API v5 and local authorization still rejects untrusted req
   const f = fixture(t);
   const result = await f.request('GET', '/status');
   assert.equal(result.body.apiVersion, 5);
-  assert.equal(result.body.version, '0.6.5');
+  assert.equal(result.body.version, '0.7.0');
   assert.equal(result.body.billing, 'chatgpt');
   for (const headers of [{ origin: 'https://example.test' }, { authorization: 'Bearer wrong' }, { host: 'localhost:19327' }]) {
     assert.equal((await f.request('POST', '/settings', { customPrompt: 'blocked' }, headers)).status, 403);

@@ -398,7 +398,7 @@ var PaperChat = {
     this.starting = (async () => {
       try {
         const info = await this.api('/status');
-        if (info.apiVersion === 5 && info.version === '0.6.5') return info;
+        if (info.apiVersion === 5 && info.version === '0.7.0') return info;
         await this.api('/shutdown', 'POST', {});
         await Zotero.Promise.delay(700);
       }
@@ -411,7 +411,8 @@ var PaperChat = {
       const process = Cc['@mozilla.org/process/util;1'].createInstance(Ci.nsIProcess);
       process.init(node);
       if (Zotero.isWin) { process.startHidden = true; process.noShell = true; }
-      process.runwAsync([PaperChatConfig.server], 1, null, false);
+      const args = [PaperChatConfig.server, ...(PaperChatConfig.dataDir ? ['--data-dir', PaperChatConfig.dataDir] : [])];
+      process.runwAsync(args, args.length, null, false);
       this.process = process;
       let lastError;
       for (let i = 0; i < 45 && !this.stopped; i++) {
@@ -555,8 +556,23 @@ var PaperChat = {
     const full = /全文|整篇/.test(question);
     const selectedPage = state.selectedExcerpt?.page;
     const selectionEnd = Math.min(pdf.numPages, state.selectedExcerpt?.pages?.[1] || (state.selectedExcerpt?.position?.nextPageRects?.length ? selectedPage + 1 : selectedPage));
-    const numbers = !full && selectedPage ? Array.from({ length: selectionEnd - selectedPage + 1 }, (_, i) => selectedPage + i)
-      : /当前页|这一页|本页/.test(question) && !full ? [currentPage] : Array.from({ length: pdf.numPages }, (_, i) => i + 1);
+    const selectionNumbers = selectedPage ? Array.from({ length: selectionEnd - selectedPage + 1 }, (_, i) => selectedPage + i) : [];
+    const initialNumbers = Array.from({ length: Math.min(30, pdf.numPages) }, (_, i) => i + 1);
+    const explicitNumbers = [];
+    const pageReferences = /第\s*(\d+(?:\s*(?:[-–—~～至到、，,和及]|页\s*(?:至|到))\s*(?:第\s*)?\d+)*)\s*页|\b(?:pages?|pp?\.?)\s*(\d+(?:\s*(?:[-–—~～,;&]|\bto\b|\band\b)\s*\d+)*)/giu;
+    for (const match of question.matchAll(pageReferences)) {
+      for (const reference of (match[1] || match[2]).split(/[,，、;&和及]|\band\b/iu)) {
+        const [start, end = start] = reference.replace(/[第页]/gu, '').trim().split(/\s*(?:[-–—~～至到]|\bto\b)\s*/iu).map(Number);
+        for (let number = Math.max(1, Math.min(start, end)); number <= Math.min(pdf.numPages, Math.max(start, end)); number++) explicitNumbers.push(number);
+      }
+    }
+    // Scope describes this payload, independent of question focus or prior delivery:
+    // full = all pages; initial = first 30 plus current, selected and requested pages.
+    const readingScope = full ? 'full' : 'initial';
+    if (full && pdf.numPages > 1000) throw new Error(PaperChatText.t("panel.error04"));
+    const requested = full ? Array.from({ length: pdf.numPages }, (_, i) => i + 1)
+      : [...initialNumbers, currentPage, ...selectionNumbers, ...explicitNumbers];
+    const numbers = [...new Set(requested)].filter(number => Number.isInteger(number) && number >= 1 && number <= pdf.numPages).sort((a, b) => a - b);
     if (numbers.length > 1000) throw new Error(PaperChatText.t("panel.error04"));
     await PaperChatReader.loadOutline(state);
     const pages = [];
@@ -569,14 +585,14 @@ var PaperChat = {
       }
       const text = state.pageCache.get(number);
       chars += text.length;
-      if (chars > 400000) throw new Error(PaperChatText.t("panel.error06"));
+      if (chars > 2000000) throw new Error(PaperChatText.t("panel.error06"));
       pages.push({ number, text, sections: PaperChatReader.sectionsForPage(state, number).map(entry => PaperChatReader.sectionLabel(state, entry)) });
     }
     if (pages.every(page => !page.text.trim())) throw new Error(PaperChatText.t("panel.error07"));
     const selection = state.selectedExcerpt?.text || '';
     const selectionPage = state.selectedExcerpt?.page;
     this.refreshCitations(state);
-    return { paper: { id: state.paperId, title: state.reader._title || state.reader._item.getField('title'), pageCount: pdf.numPages, pages }, currentPage, selection, selectionPage };
+    return { paper: { id: state.paperId, title: state.reader._title || state.reader._item.getField('title'), pageCount: pdf.numPages, pages, readingScope }, currentPage, selection, selectionPage };
   },
 
   message(state, role, text) {

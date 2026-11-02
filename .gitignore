@@ -19,3 +19,9 @@ addon/config.js
 
 # Durable local conversation records and interrupted atomic writes
 **/conversations/
+
+# Private configuration copies and migration data
+**/config.json
+**/config.json.*
+**/backups/
+**/migrations/

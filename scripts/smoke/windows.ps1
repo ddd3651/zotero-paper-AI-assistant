@@ -82,7 +82,7 @@ try {
         $bitmap.Save((Join-Path $evidence 'desktop.png'))
         $graphics.Dispose(); $bitmap.Dispose()
     } catch { [string]$_ | Set-Content -LiteralPath (Join-Path $evidence 'screenshot-error.txt') }
-    $config = Get-Content -Raw -LiteralPath (Join-Path $repo 'bridge/config.json') | ConvertFrom-Json
+    $config = Get-Content -Raw -LiteralPath (Join-Path $env:PAPER_CHAT_DATA_DIR 'config.json') | ConvertFrom-Json
     foreach ($name in @('stdout.txt','stderr.txt')) {
         $path = Join-Path $root $name
         if (Test-Path -LiteralPath $path) {

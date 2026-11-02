@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { t } from './ui-text.mjs';
+import { estimateReadingTokens, planPaperReading, PaperReadingError } from './reading.mjs';
 // Pessimistic byte-level estimate, plus message framing. Covers CJK and
 // irregular identifiers without assuming chars/4. Not measured provider usage.
-export const estimateTokens = value => Buffer.byteLength(String(value || ''), 'utf8') + 32;
-const defaults = { contextWindow: 32768, outputReserve: 4096, summaryTokens: 2048, recentTokens: 8192, threshold: 0.75 };
+export const estimateTokens = estimateReadingTokens;
+export const DEFAULT_CONTEXT_WINDOW = 500000;
+const defaults = { contextWindow: DEFAULT_CONTEXT_WINDOW, outputReserve: 4096, summaryTokens: 2048, recentTokens: 8192, threshold: 0.75 };
 export function contextBudget(value = {}, current = defaults) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(t("errors.context.invalidBudget"));
   const result = { ...defaults, ...current };
@@ -64,36 +66,12 @@ export function compactionEnd(record, budget) {
 }
 export const SUMMARY_INSTRUCTIONS = readFileSync(new URL('./prompts/compaction.md', import.meta.url), 'utf8').trimEnd();
 
-// Select actual source excerpts by current/selection page and lexical relevance.
-// Offsets refer to original page text; page numbers remain usable by paperchat links.
+// Backwards-compatible single-paper API. Callers that need multiple passes
+// consume error.plan / planPaperReading rather than pretending an excerpt is full.
 export function budgetPaper(paper, body, tokens) {
-  const cap = Math.max(0, Math.floor(tokens) - 256);
-  const terms = [...new Set(queryTerms(body.question + ' ' + (body.selection || '')))];
-  const ranked = paper.pages.map(page => {
-    const text = page.text.toLowerCase();
-    let score = (page.number === body.currentPage ? 100 : 0) + (page.number === body.selectionPage ? 200 : 0);
-    for (const term of terms) if (text.includes(term)) score += 5;
-    return { page, score };
-  }).sort((a, b) => b.score - a.score || a.page.number - b.page.number);
-  let left = cap;
-  const pages = [];
-  for (const { page } of ranked) {
-    if (left < 160) break;
-    const overhead = estimateTokens(JSON.stringify({ number: page.number, text: '', sections: page.sections }));
-    if (overhead >= left) continue;
-    let text = page.text, sourceOffset = 0;
-    const available = Math.max(0, left - overhead - 96);
-    if (estimateTokens(JSON.stringify(text)) > available) {
-      let hit = body.selection && page.number === body.selectionPage ? text.indexOf(body.selection) : -1;
-      if (hit < 0) for (const term of terms) { hit = text.toLowerCase().indexOf(term); if (hit >= 0) break; }
-      sourceOffset = Math.max(0, (hit < 0 ? 0 : hit) - Math.floor(available / 4));
-      ({ text, sourceOffset } = excerptWithin(text, sourceOffset, available));
-    }
-    const excerpt = { ...page, text, ...(text.length !== page.text.length ? { sourceOffset, truncated: true } : {}) };
-    left -= estimateTokens(JSON.stringify(excerpt)); pages.push(excerpt);
-  }
-  if (!pages.length || pages.every(p => !p.text.trim())) throw new Error(t("errors.context.evidenceTooLarge"));
-  return { ...paper, pages: pages.sort((a, b) => a.number - b.number), sourceCoverage: { providedPages: paper.pages.length, selectedPages: pages.length, totalPages: paper.pageCount, partial: pages.length < paper.pageCount || pages.some(p => p.truncated) } };
+  const plan = planPaperReading(paper, body, tokens);
+  if (plan.requiresBatching) throw new PaperReadingError('batchRequired', { plan });
+  return plan.batches[0];
 }
 
 export function queryTerms(text) {

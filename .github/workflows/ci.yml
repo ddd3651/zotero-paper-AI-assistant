@@ -5,6 +5,9 @@ on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
 
+env:
+  PAPER_CHAT_DATA_DIR: ${{ runner.temp }}/paper-chat-user-data
+
 jobs:
   test:
     strategy:

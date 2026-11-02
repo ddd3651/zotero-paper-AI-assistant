@@ -20,7 +20,7 @@ evidence = repo / 'dist/macos-smoke-evidence'
 evidence.mkdir(parents=True)
 proc = None
 mounts = []
-config = json.loads((repo / 'bridge/config.json').read_text())
+config = json.loads((Path(os.environ['PAPER_CHAT_DATA_DIR']) / 'config.json').read_text())
 def call(args, **kwargs):
     return subprocess.run(args, check=True, timeout=90, **kwargs)
 def apple(code):

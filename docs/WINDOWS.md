@@ -7,10 +7,18 @@
 1. 安装 Windows 原生 Zotero、Node.js 和 Python。重新打开终端，确认 `node --version` 和 `py -3 --version` 可运行。
 2. 使用 Codex 模式时，安装 Windows 原生 Codex CLI（例如 `npm install -g @openai/codex`），执行 `codex login` 并通过 ChatGPT 账号登录。只使用外部 API 时可跳过此项。WSL 中的 CLI 不能由 Windows Zotero 直接调用。
 3. 将源码放在当前用户的私有目录，运行 `npm run build`。也可直接用 `py -3 scripts/build.py`。不需要 `npm install` 项目依赖。
-4. 在 Zotero 的工具 → 插件 → 从文件安装插件中选择 `dist/zotero-paper-chat-0.6.5.xpi`。保留源码目录；移动后重新构建和安装。
+4. 在 Zotero 的工具 → 插件 → 从文件安装插件中选择 `dist/zotero-paper-chat-0.7.0.xpi`。保留源码目录；移动后重新构建和安装。
 5. 打开 PDF。自动启动失败时，双击源码根目录的“启动伴读服务.cmd”，或运行 `npm start` 查看诊断。
 
 本机 XPI 含绝对路径和连接令牌，不能分享。分享源码请运行 `npm run pack:source`。
+
+## 配置和历史存放
+
+配置保存在`%APPDATA%\Zotero Paper Chat\config.json`，历史保存在同目录的`conversations\`。重新下载源码和覆盖安装插件后会继续使用这些文件。首次升级时，旧`bridge\config.json`先完整备份到`backups\`，再复制配置和`bridge\runtime\conversations\`；旧文件保留，已有目标文件不覆盖。请先退出旧本地服务，再构建新版。
+
+测试或需要改存放位置时，可在PowerShell中设置`$env:PAPER_CHAT_DATA_DIR = 'D:\自选目录\Zotero Paper Chat'`，然后运行构建。生成的启动器和安装包会记住此目录；路径支持中文、空格和特殊字符。数据目录需位于支持硬链接的文件系统，例如NTFS。备份失败或文件系统不支持时，构建会停止并保留旧文件。
+
+备份或换电脑时复制整个数据目录，其中的配置和备份包含密钥，请保存在当前用户的私有位置。字体和面板位置仍由Zotero设置保存。CI使用`PAPER_CHAT_DATA_DIR`指定临时数据目录，以免读写真实用户数据。
 
 ## Codex 路径
 

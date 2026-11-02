@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'scripts'))
@@ -13,6 +14,13 @@ from project_files import project_files
 
 
 class HistoryPackagingTest(unittest.TestCase):
+    def setUp(self):
+        data = tempfile.TemporaryDirectory(prefix='paper-chat-private-fixture-')
+        self.addCleanup(data.cleanup)
+        override = patch.dict('os.environ', {'PAPER_CHAT_DATA_DIR': data.name})
+        override.start()
+        self.addCleanup(override.stop)
+
     def test_source_archive_excludes_histories_and_known_private_directories(self):
         with tempfile.TemporaryDirectory(prefix='paper-chat-packaging-') as directory:
             root = Path(directory)

@@ -1,6 +1,7 @@
 import { contextBudget } from './context.mjs';
 import { t } from './ui-text.mjs';
 import { normalizeExternal, publicExternal } from './external.mjs';
+import { reportedContextWindow } from './provider-capacity.mjs';
 export async function readModels(client) {
   const models = [];
   const seen = new Set();
@@ -15,9 +16,11 @@ export async function readModels(client) {
         value: option.reasoningEffort, description: option.description || '',
       }));
       if (!efforts.length) continue;
+      const capacity = reportedContextWindow(entry);
       models.push({ id: entry.model, name: entry.displayName || entry.model,
         description: entry.description || '', isDefault: !!entry.isDefault,
-        defaultEffort: entry.defaultReasoningEffort || efforts[0].value, efforts });
+        defaultEffort: entry.defaultReasoningEffort || efforts[0].value, efforts,
+        ...(capacity ? { contextWindow: capacity } : {}) });
     }
     cursor = result.nextCursor;
   } while (cursor);
