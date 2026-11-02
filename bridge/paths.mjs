@@ -69,20 +69,25 @@ function ownerAlive(pid) {
   try { process.kill(pid, 0); return true; }
   catch (error) { return error.code !== 'ESRCH'; } // EPERM is a live owner.
 }
+function lockPathBusy(error) {
+  // Windows can report a directory as access-denied while another process's
+  // successful RemoveDirectory is still pending. The acquisition loop retries.
+  return process.platform === 'win32' && ['EPERM', 'EACCES'].includes(error.code);
+}
 function removeOwner(lock, owner) {
   // Never recursively remove a shared lock path. The unique owner filename
   // makes a stale reader harmless if another process has already recovered it.
   try { unlinkSync(path.join(lock, owner)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   try { rmdirSync(lock); }
-  catch (error) { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error.code)) throw error; }
+  catch (error) { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error.code) && !lockPathBusy(error)) throw error; }
 }
 function recoverDeadLock(lock) {
   let entries;
-  try { entries = readdirSync(lock); } catch (error) { if (error.code === 'ENOENT') return; throw error; }
+  try { entries = readdirSync(lock); } catch (error) { if (error.code === 'ENOENT' || lockPathBusy(error)) return; throw error; }
   if (!entries.length) {
     // Acquisition publishes a populated candidate atomically, so an empty
     // directory has no live owner. rmdir cannot remove a newly acquired lock.
-    try { rmdirSync(lock); } catch (error) { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error.code)) throw error; }
+    try { rmdirSync(lock); } catch (error) { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error.code) && !lockPathBusy(error)) throw error; }
     return;
   }
   if (entries.length !== 1) return;
@@ -112,9 +117,11 @@ export function withConfigLock(configFile, fn) {
       try { renameSync(candidate, lock); acquired = true; }
       catch (error) {
         if (!['EEXIST', 'ENOTEMPTY', 'EPERM', 'EACCES'].includes(error.code)) throw error;
-        const info = stat(lock);
-        if (info && !info.isDirectory()) throw error;
-        if (info) recoverDeadLock(lock);
+        try {
+          const info = stat(lock);
+          if (info && !info.isDirectory()) throw error;
+          if (info) recoverDeadLock(lock);
+        } catch (pending) { if (!lockPathBusy(pending)) throw pending; }
         const remaining = deadline - performance.now();
         if (remaining <= 0) throw new Error('等待配置锁超时，请稍后重试');
         Atomics.wait(pause, 0, 0, Math.min(20, remaining));

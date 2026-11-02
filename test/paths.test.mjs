@@ -291,15 +291,17 @@ test('prepare CLI emits no values and malformed JSON errors cannot echo configur
 });
 
 test('simultaneous prepare calls create a single stable capability without changing manual settings', async t => {
-  const f = fixture(t), file = join(f.dataDir, 'config.json');
-  f.write(file, '{"model":"manual","customPrompt":"retain","contextBudget":{"contextWindow":32768}}');
-  const results = await Promise.all(Array.from({ length: 4 }, () => new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [moduleFile, '--prepare', file], { stdio: ['ignore', 'pipe', 'pipe'] });
-    let output = ''; child.stdout.on('data', data => { output += data; }); child.stderr.on('data', data => { output += data; });
-    child.on('error', reject); child.on('close', code => resolve({ code, output }));
-  })));
-  assert.ok(results.every(r => r.code === 0 && r.output === ''), JSON.stringify(results));
-  const saved = readFileSync(file, 'utf8'); prepareConfig(file); assert.equal(readFileSync(file, 'utf8'), saved);
-  const config = JSON.parse(saved); assert.equal(config.token.length, 64); assert.equal(config.model, 'manual');
-  assert.equal(config.customPrompt, 'retain'); assert.equal(config.contextBudget.contextWindow, 32768);
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const f = fixture(t), file = join(f.dataDir, 'config.json');
+    f.write(file, '{"model":"manual","customPrompt":"retain","contextBudget":{"contextWindow":32768}}');
+    const results = await Promise.all(Array.from({ length: 4 }, () => new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [moduleFile, '--prepare', file], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let output = ''; child.stdout.on('data', data => { output += data; }); child.stderr.on('data', data => { output += data; });
+      child.on('error', reject); child.on('close', code => resolve({ code, output }));
+    })));
+    assert.ok(results.every(r => r.code === 0 && r.output === ''), JSON.stringify(results));
+    const saved = readFileSync(file, 'utf8'); prepareConfig(file); assert.equal(readFileSync(file, 'utf8'), saved);
+    const config = JSON.parse(saved); assert.equal(config.token.length, 64); assert.equal(config.model, 'manual');
+    assert.equal(config.customPrompt, 'retain'); assert.equal(config.contextBudget.contextWindow, 32768);
+  }
 });
