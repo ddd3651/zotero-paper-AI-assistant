@@ -16,6 +16,12 @@ import build
 from project_files import project_files, audit_files, user_data_dir
 
 
+# Windows child processes need these OS variables even in an otherwise clean
+# fixture environment. Avoid inheriting plugin settings, proxies or credentials.
+CLEAN_ENV = {key: value for key, value in os.environ.items()
+             if key.casefold() in {'systemroot', 'windir', 'temp', 'tmp'}}
+
+
 class PackagingTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -65,7 +71,7 @@ class PackagingTest(unittest.TestCase):
         self.assertEqual(json.loads((self.root / 'bridge/config.json').read_text()), private)
 
     def test_local_build_creates_private_config_and_preserves_existing_settings(self):
-        with patch.object(build.shutil, 'which', return_value=self.node), patch.dict(build.os.environ, {}, clear=True):
+        with patch.object(build.shutil, 'which', return_value=self.node), patch.dict(build.os.environ, CLEAN_ENV, clear=True):
             xpi = build.build_local(self.root, self.root / 'dist')
             config_path = self.data_dir / 'config.json'
             self.assertFalse((self.root / 'bridge/config.json').exists())
@@ -89,7 +95,7 @@ class PackagingTest(unittest.TestCase):
         text = {'metadata': {'name': 'My Reader', 'description': 'Custom description'},
                 'common': {'send': 'Ask'}}
         self.write('addon/ui-text.json', json.dumps(text))
-        with patch.dict(os.environ, {}, clear=True), patch('shutil.which', return_value=self.node):
+        with patch.dict(os.environ, CLEAN_ENV, clear=True), patch('shutil.which', return_value=self.node):
             xpi = build.build_local(self.root, self.root / 'dist')
         with zipfile.ZipFile(xpi) as zipped:
             manifest = json.loads(zipped.read('manifest.json'))
@@ -125,7 +131,7 @@ class PackagingTest(unittest.TestCase):
         legacy = self.root / 'bridge/config.json'
         legacy.write_bytes(raw)
         self.write('bridge/runtime/conversations/chat.json', 'fixture-history')
-        with patch.object(build.shutil, 'which', return_value=self.node), patch.dict(os.environ, {'HTTPS_PROXY': 'http://localhost:8888'}, clear=True):
+        with patch.object(build.shutil, 'which', return_value=self.node), patch.dict(os.environ, {**CLEAN_ENV, 'HTTPS_PROXY': 'http://localhost:8888'}, clear=True):
             xpi = build.build_local(self.root, self.root / 'dist')
             build.build_local(self.root, self.root / 'dist')
         self.assertEqual(legacy.read_bytes(), raw)
@@ -149,7 +155,7 @@ class PackagingTest(unittest.TestCase):
                  'unknown': 'untouched', 'contextBudget': {'contextWindow': 87654}}
         (self.data_dir / 'config.json').write_text(json.dumps(fixed), encoding='utf-8')
         self.write('bridge/config.json', json.dumps({'token': 'stale', 'port': 23458}))
-        with patch.object(build.shutil, 'which', return_value=self.node), patch.dict(os.environ, {}, clear=True):
+        with patch.object(build.shutil, 'which', return_value=self.node), patch.dict(os.environ, CLEAN_ENV, clear=True):
             build.build_local(self.root, self.root / 'dist')
         self.assertEqual(json.loads((self.data_dir / 'config.json').read_text()), fixed)
 
@@ -181,7 +187,7 @@ class PackagingTest(unittest.TestCase):
             data.mkdir(parents=True)
             (data / 'config.json').write_text(json.dumps({'token': 'private-fixture-token', 'port': 23456}), encoding='utf-8')
             (data / 'arbitrary.json').write_text('DO-NOT-PUBLISH-FIXTURE', encoding='utf-8')
-            with patch.object(build.shutil, 'which', return_value=self.node), patch.dict(os.environ, {}, clear=True):
+            with patch.object(build.shutil, 'which', return_value=self.node), patch.dict(os.environ, CLEAN_ENV, clear=True):
                 with self.assertRaisesRegex(SystemExit, '不能相互嵌套'):
                     build.build_local(self.root, self.root / 'dist')
             self.assertFalse((self.root / 'dist').exists())
@@ -212,7 +218,7 @@ class PackagingTest(unittest.TestCase):
         ]
         for name in private:
             self.write(name, 'OLD-DIRECTORY-PRIVATE-CANARY')
-        with patch.object(build.shutil, 'which', return_value=self.node), patch.dict(os.environ, {}, clear=True):
+        with patch.object(build.shutil, 'which', return_value=self.node), patch.dict(os.environ, CLEAN_ENV, clear=True):
             xpi = build.build_local(self.root, self.root / 'dist')
         source = build.build_source(self.root, self.root / 'dist')
         for archive in [xpi, source]:
@@ -240,7 +246,7 @@ class PackagingTest(unittest.TestCase):
                 path.write_text(json.dumps(latest), encoding='utf-8')
             return result
 
-        with patch.object(build.shutil, 'which', return_value=self.node), patch.object(build.subprocess, 'run', side_effect=intercept), patch.dict(os.environ, {}, clear=True):
+        with patch.object(build.shutil, 'which', return_value=self.node), patch.object(build.subprocess, 'run', side_effect=intercept), patch.dict(os.environ, CLEAN_ENV, clear=True):
             build.build_local(self.root, self.root / 'dist')
         self.assertEqual(operations, ['--resolve', '--prepare'])
         actual = json.loads(path.read_text())
