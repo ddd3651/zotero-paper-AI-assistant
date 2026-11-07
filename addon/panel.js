@@ -177,6 +177,20 @@ var PaperChat = {
       .paper-chat-panel .pc-message-actions .pc-copy-message{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;min-height:24px;padding:3px;border:0;border-radius:5px;background:transparent;opacity:.65}
       .paper-chat-panel .pc-copy-message:hover,.paper-chat-panel .pc-copy-message:focus-visible{opacity:1;background:color-mix(in srgb,currentColor 8%,transparent)}
       .paper-chat-panel .pc-copy-message svg{display:block;pointer-events:none;flex:none}
+      .paper-chat-panel .pc-html-card{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;min-height:54px;margin:8px 0;padding:14px 16px;border:1px solid var(--fill-quaternary,#cbd5df);border-radius:8px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}
+      .paper-chat-panel .pc-html-card:hover{background:color-mix(in srgb,currentColor 5%,transparent)}
+      .paper-chat-panel .pc-html-card svg{flex:none}
+      .paper-chat-panel .pc-export-menu{display:inline-flex;gap:4px;align-items:center}
+      .paper-chat-panel .pc-inline-export{margin:8px 0;min-width:0}
+      .paper-chat-panel .pc-image-zoom{display:block;padding:0;border:0;background:transparent;cursor:zoom-in;width:100%}
+      .paper-chat-panel .pc-image-zoom img{display:block;max-width:100%;height:auto}
+      .paper-chat-panel .pc-image-save{margin-top:4px}
+      .paper-chat-panel .pc-export-content.pc-image-full img{max-width:none;height:auto}
+      .paper-chat-panel .pc-export-dialog{position:absolute;inset:8px;z-index:30;display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--fill-quaternary,#cbd5df);border-radius:8px;background:var(--material-background,#fff);box-shadow:0 3px 14px #0002;min-width:0;min-height:0}
+      .paper-chat-panel .pc-export-controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+      .paper-chat-panel .pc-export-controls select{margin-right:auto}
+      .paper-chat-panel .pc-export-content{overflow:auto;flex:1;min-height:0;padding:6px;overflow-wrap:anywhere}
+      .paper-chat-panel .pc-export-content img,.paper-chat-panel .pc-export-content svg{display:block;max-width:100%;height:auto}
       .paper-chat-panel .pc-activity{margin:0 0 10px;color:var(--fill-secondary,#68717c);font-size:.9em}
       .paper-chat-panel .pc-activity summary{cursor:pointer;user-select:none;line-height:1.6}
       .paper-chat-panel .pc-reasoning-summary{margin-top:8px;padding:8px;border-left:2px solid #b9c6d6;max-height:240px;overflow:auto;user-select:text}
@@ -398,7 +412,7 @@ var PaperChat = {
     this.starting = (async () => {
       try {
         const info = await this.api('/status');
-        if (info.apiVersion === 5 && info.version === '0.7.0') return info;
+        if (info.apiVersion === 5 && info.version === '0.7.6') return info;
         await this.api('/shutdown', 'POST', {});
         await Zotero.Promise.delay(700);
       }
@@ -548,14 +562,15 @@ var PaperChat = {
     finally { this.setBusy(state, false); }
   },
 
-  async readPaper(state, question = '') {
+  async readPaper(state, question = '', retry = null) {
+    const excerpt = retry ? { text: retry.selection || '', page: retry.selectionPage } : state.selectedExcerpt;
     const app = this.pdfApp(state.reader);
     const pdf = app.pdfDocument;
     state.pageCount = pdf.numPages;
-    const currentPage = app.pdfViewer.currentPageNumber;
+    const currentPage = retry?.currentPage || app.pdfViewer.currentPageNumber;
     const full = /全文|整篇/.test(question);
-    const selectedPage = state.selectedExcerpt?.page;
-    const selectionEnd = Math.min(pdf.numPages, state.selectedExcerpt?.pages?.[1] || (state.selectedExcerpt?.position?.nextPageRects?.length ? selectedPage + 1 : selectedPage));
+    const selectedPage = excerpt?.page;
+    const selectionEnd = Math.min(pdf.numPages, excerpt?.pages?.[1] || (excerpt?.position?.nextPageRects?.length ? selectedPage + 1 : selectedPage));
     const selectionNumbers = selectedPage ? Array.from({ length: selectionEnd - selectedPage + 1 }, (_, i) => selectedPage + i) : [];
     const initialNumbers = Array.from({ length: Math.min(30, pdf.numPages) }, (_, i) => i + 1);
     const explicitNumbers = [];
@@ -571,7 +586,7 @@ var PaperChat = {
     const readingScope = full ? 'full' : 'initial';
     if (full && pdf.numPages > 1000) throw new Error(PaperChatText.t("panel.error04"));
     const requested = full ? Array.from({ length: pdf.numPages }, (_, i) => i + 1)
-      : [...initialNumbers, currentPage, ...selectionNumbers, ...explicitNumbers];
+      : [...initialNumbers, currentPage, ...selectionNumbers, ...explicitNumbers, ...(retry?.pageReferences || [])];
     const numbers = [...new Set(requested)].filter(number => Number.isInteger(number) && number >= 1 && number <= pdf.numPages).sort((a, b) => a - b);
     if (numbers.length > 1000) throw new Error(PaperChatText.t("panel.error04"));
     await PaperChatReader.loadOutline(state);
@@ -589,8 +604,8 @@ var PaperChat = {
       pages.push({ number, text, sections: PaperChatReader.sectionsForPage(state, number).map(entry => PaperChatReader.sectionLabel(state, entry)) });
     }
     if (pages.every(page => !page.text.trim())) throw new Error(PaperChatText.t("panel.error07"));
-    const selection = state.selectedExcerpt?.text || '';
-    const selectionPage = state.selectedExcerpt?.page;
+    const selection = excerpt?.text || '';
+    const selectionPage = excerpt?.page;
     this.refreshCitations(state);
     return { paper: { id: state.paperId, title: state.reader._title || state.reader._item.getField('title'), pageCount: pdf.numPages, pages, readingScope }, currentPage, selection, selectionPage };
   },
@@ -626,6 +641,7 @@ var PaperChat = {
       describeCitation: (page, details) => PaperChatReader.describeCitation(state, page, details),
       navigate: (page, details) => PaperChatReader.navigate(state, page, details).catch(e => { state.error.textContent = e.message; }),
       openLink: url => Zotero.launchURL(url),
+      renderCode: (lang, source) => PaperChatExport.htmlBlock(this, state, node, lang, source),
     }));
     if (followBottom) state.log.scrollTop = state.log.scrollHeight;
   },
@@ -633,6 +649,7 @@ var PaperChat = {
   setBusy(state, busy) {
     state.busy = busy;
     for (const el of [state.send, state.reset, state.clear]) el.disabled = busy || !!state.historyBusy || !state.historyLoaded;
+    for (const button of state.log.querySelectorAll('.pc-resend-message')) button.disabled = busy || !!state.historyBusy || !state.historyLoaded;
     PaperChatConversations.setBusy(state);
     state.cancel.hidden = !busy && !state.compacting;
     for (const control of [state.modelButton, state.modelSelect, state.effortSelect, state.promptSave, state.promptInput]) control.disabled = busy || state.settingsSaving || !state.settingsReady;
@@ -640,10 +657,10 @@ var PaperChat = {
     if (busy) { state.settingsMenu.hidden = true; state.settingsButton.setAttribute('aria-expanded', 'false'); }
   },
 
-  async ask(state) {
-    if (state.busy || state.historyBusy || !state.historyLoaded || !state.input.value.trim()) return;
+  async ask(state, retry = null) {
+    const question = String(retry ? retry.text : state.input.value).trim();
+    if (state.disposed || state.busy || state.historyBusy || !state.historyLoaded || !question) return;
     const conversationId = state.conversationId;
-    const question = state.input.value.trim();
     state.error.textContent = ''; state.cancelRequested = false;
     this.setBusy(state, true);
     const win = state.panel.ownerDocument.defaultView;
@@ -658,13 +675,13 @@ var PaperChat = {
       await this.ensureBridge();
       await state.settingsPromise;
       this.applySettings(await this.api('/settings'));
-      const data = await this.readPaper(state, question);
+      const data = await this.readPaper(state, question, retry);
       if (state.disposed || state.conversationId !== conversationId) return;
       if (state.cancelRequested) return;
       for (const page of data.paper.pages) state.allowedPages.add(page.number);
       const user = this.message(state, 'user', question);
       Object.assign(user._paperChatEntry, { selection: data.selection, selectionPage: data.selectionPage, currentPage: data.currentPage, pageReferences: data.paper.pages.map(page => page.number) });
-      state.input.value = '';
+      if (!retry) state.input.value = '';
       answer = this.message(state, 'assistant', PaperChatText.t("activity.reading"));
       answer._paperChatEntry.activity = { startedAt: Date.now(), status: 'running', summary: '' };
       PaperChatInteraction.progress(this, state, answer);

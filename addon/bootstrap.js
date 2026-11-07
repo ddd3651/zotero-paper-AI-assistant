@@ -12,6 +12,7 @@ var PaperChatSelection;
 var PaperChatAppearance;
 var PaperChatAPISettings;
 var PaperChatInteraction;
+var PaperChatExport;
 var PaperChatConversations;
 var PaperChatResize;
 
@@ -34,6 +35,7 @@ async function startup({ rootURI }) {
   Services.scriptloader.loadSubScript(rootURI + 'selection.js', this);
   Services.scriptloader.loadSubScript(rootURI + 'appearance.js', this);
   Services.scriptloader.loadSubScript(rootURI + 'api-settings.js', this);
+  Services.scriptloader.loadSubScript(rootURI + 'export.js', this);
   Services.scriptloader.loadSubScript(rootURI + 'interaction.js', this);
   Services.scriptloader.loadSubScript(rootURI + 'conversations.js', this);
   Services.scriptloader.loadSubScript(rootURI + 'resize.js', this);

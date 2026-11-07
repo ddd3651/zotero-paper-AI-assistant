@@ -1,4 +1,20 @@
 {
+  "export": {
+    "title": "预览与导出",
+    "format": "导出格式",
+    "zoom": "放大图片",
+    "openHTML": "在浏览器打开HTML",
+    "demo": "HTML演示",
+    "save": "导出",
+    "tooLarge": "回答为空或内容过长，无法导出。",
+    "imageTooLarge": "图片过长，请导出HTML，或让助手分段生成。",
+    "failed": "无法导出文件。"
+  },
+  "imageSettings": {
+    "title": "生图接口",
+    "model": "生图模型",
+    "path": "接口路径"
+  },
   "_help": "只修改右侧文案，不要修改键名；{name} 是动态占位符。修改后重新打包并安装插件；服务报错文案重启服务后生效。模型提示词仍在bridge/prompts/default.md。",
   "metadata": {
     "name": "AI论文助手",
@@ -79,6 +95,7 @@
     "conversation": "复制全部对话"
   },
   "interaction": {
+    "resend": "重新发送",
     "text01": "复制失败：",
     "text02": "对话记录，可选中文字复制",
     "format01": "{seconds} 秒",

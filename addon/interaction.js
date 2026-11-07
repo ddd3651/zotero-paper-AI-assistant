@@ -97,17 +97,29 @@ var PaperChatInteraction = {
       state.panel.removeEventListener('keydown', keydown, true);
       state.panel.removeEventListener('contextmenu', contextmenu);
       doc.removeEventListener('selectionchange', selectionchange);
+      state.exportClose?.(false);
       popup.hidePopup(); popup.remove();
     };
   },
   message(plugin, state, body, wrap) {
+    if (body._paperChatEntry.role === 'user') {
+      const footer = plugin.el(body.ownerDocument, 'div', null, 'pc-message-actions');
+      const retry = PaperChatConversations.icon(plugin, body.ownerDocument, 'interaction.resend', 'retry');
+      retry.className = 'pc-copy-message pc-resend-message';
+      retry.disabled = !!state.busy || !!state.historyBusy || !state.historyLoaded;
+      retry.addEventListener('click', () => {
+        if (state.disposed || state.busy || state.historyBusy || !state.historyLoaded) return;
+        return plugin.ask(state, { ...body._paperChatEntry });
+      });
+      footer.append(retry); wrap.append(footer); return;
+    }
     if (body._paperChatEntry.role !== 'assistant') return;
     const footer = plugin.el(body.ownerDocument, 'div', null, 'pc-message-actions');
     const copy = plugin.el(body.ownerDocument, 'button', null, 'pc-copy-message');
     copy.title = PaperChatText.t("copy.answer"); copy.setAttribute('aria-label', PaperChatText.t("copy.answer"));
     this.copyIcon(copy);
     copy.addEventListener('click', () => this.copy(state, body._paperChatEntry.text, copy));
-    footer.append(copy); wrap.append(footer);
+    footer.append(copy, PaperChatExport.button(plugin, state, body)); wrap.append(footer);
   },
   duration(ms) {
     const seconds = Math.max(0, Math.floor(ms / 1000));
@@ -132,6 +144,7 @@ var PaperChatInteraction = {
       entry.activity = { startedAt: job.startedAt, firstTextAt: job.firstTextAt,
         finishedAt: job.finishedAt, status: job.status, summary: job.summary || '', searches: job.searches || [] };
     }
+    PaperChatExport.refreshHTMLCards(body);
     const data = entry.activity || { startedAt: Date.now(), status: 'running' };
     const end = data.finishedAt || Date.now();
     const elapsed = this.duration(end - data.startedAt);

@@ -28,7 +28,7 @@ function fixture(t, saved = {}, { offline = false, start, summary = '', search =
   let threads = 0;
   let turns = 0;
   let failNext = false;
-  client.start = async () => { if (start) await start(); if (offline) throw new Error('mock CLI unavailable'); client.account = account; return account; };
+  client.start = async () => { if (start) await start(); if (offline) throw new Error('mock CLI unavailable'); client.disconnected = false; client.account = account; return account; };
   client.call = async (method, params) => {
     calls.push({ method, params });
     if (method === 'account/read') return { account };
@@ -86,7 +86,7 @@ function fixture(t, saved = {}, { offline = false, start, summary = '', search =
     }
     assert.fail('Mock generation did not finish');
   };
-  return { request, ask, calls, directory, configFile, ready: bridge.ready,
+  return { request, ask, calls, directory, configFile, ready: bridge.ready, client,
     failNext() { failNext = true; }, setAccount(value) { account = value; } };
 }
 
@@ -346,7 +346,7 @@ test('/status reports API v5 and local authorization still rejects untrusted req
   const f = fixture(t);
   const result = await f.request('GET', '/status');
   assert.equal(result.body.apiVersion, 5);
-  assert.equal(result.body.version, '0.7.0');
+  assert.equal(result.body.version, '0.7.6');
   assert.equal(result.body.billing, 'chatgpt');
   for (const headers of [{ origin: 'https://example.test' }, { authorization: 'Bearer wrong' }, { host: 'localhost:19327' }]) {
     assert.equal((await f.request('POST', '/settings', { customPrompt: 'blocked' }, headers)).status, 403);
@@ -520,4 +520,38 @@ test('late CLI readiness uses latest saved config and does not overwrite API set
   assert.equal(result.body.models.length, 2);
   assert.deepEqual(result.body.current, saved.body.current);
   assert.doesNotMatch(JSON.stringify(result.body), /latest-key|"apiKey"/);
+});
+
+test('reserved image settings persist across provider changes without exposing the key', async t => {
+  const f = fixture(t, { external: { baseUrl: 'https://fixture.invalid/v1', model: 'text-model', apiKey: 'fixture-only-key' } });
+  const saved = await f.request('POST', '/settings', {
+    provider: 'external', external: { imageModel: 'illustration-model', imagePath: '/images/generations' },
+  });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.current.external.imageModel, 'illustration-model');
+  assert.equal(saved.body.current.external.imagePath, '/images/generations');
+  assert.doesNotMatch(JSON.stringify(saved.body), /fixture-only-key/);
+  const switched = await f.request('POST', '/settings', { provider: 'codex' });
+  assert.equal(switched.body.current.external.imageModel, 'illustration-model');
+  assert.equal(JSON.parse(readFileSync(f.configFile)).external.apiKey, 'fixture-only-key');
+  assert.equal((await f.request('POST', '/settings', { external: { imagePath: '//other.invalid/images' } })).status, 400);
+  const cleared = await f.request('POST', '/settings', { external: { imagePath: '', imageModel: '' } });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.current.external.imageModel, undefined);
+  assert.equal(cleared.body.current.external.imagePath, undefined);
+});
+
+
+test('successful status has no error and a disconnected child reconnects before the next question', async t => {
+  let starts = 0;
+  const f = fixture(t, {}, { start: async () => { starts++; } });
+  await f.ready;
+  const status = (await f.request('GET', '/status')).body;
+  assert.equal(status.error, null);
+  assert.equal(status.codexError, null);
+  f.client.failAll(new Error('disconnected'));
+  assert.equal((await f.request('GET', '/status')).body.ok, false);
+  const answer = await f.ask(paperRequest());
+  assert.equal(answer.status, 'completed');
+  assert.equal(starts, 2);
 });

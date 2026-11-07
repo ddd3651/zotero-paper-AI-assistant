@@ -72,7 +72,7 @@ var PaperChatMarkdown = {
     });
   },
 
-  render(doc, text, { pageCount = 0, allowedPages, navigate, openLink, describeCitation } = {}) {
+  render(doc, text, { pageCount = 0, allowedPages, navigate, openLink, describeCitation, renderCode } = {}) {
     const create = (tag, content) => {
       const el = doc.createElementNS('http://www.w3.org/1999/xhtml', tag);
       if (content != null) el.textContent = content;
@@ -165,6 +165,8 @@ var PaperChatMarkdown = {
             const quote = create('blockquote'); blocks(quote, token.tokens); parent.append(quote); break;
           }
           case 'code': {
+            const graphic = renderCode?.(token.lang?.trim(), token.text);
+            if (graphic) { parent.append(graphic); break; }
             const pre = create('pre'); pre.append(create('code', token.text)); parent.append(pre); break;
           }
           case 'table': {

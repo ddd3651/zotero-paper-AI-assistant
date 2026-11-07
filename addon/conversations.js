@@ -6,7 +6,8 @@ var PaperChatConversations = {
     const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
     for (const [key, value] of Object.entries({ viewBox: '0 0 24 24', width: '16', height: '16', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.7', 'aria-hidden': 'true' })) svg.setAttribute(key, value);
     const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', { history: 'M3 11a9 9 0 1 1 2 7 M3 3v8h8 M12 7v5l3 2', new: 'M13 4H4v16h16v-9 M10 14l1-5L19 1l4 4-8 8z', collapse: 'm9 5 7 7-7 7', send: 'M12 19V5 M5 12l7-7 7 7', settings: 'M9.5 3h5l.6 2.3 2 .9 2.2-.7 2.5 4.3-1.7 1.6v2.2l1.7 1.6-2.5 4.3-2.2-.7-2 .9-.6 2.3h-5l-.6-2.3-2-.9-2.2.7-2.5-4.3 1.7-1.6v-2.2L1.8 10l2.5-4.3 2.2.7 2-.9z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0', close: 'm6 6 12 12 M6 18 18 6' }[kind]);
+    path.setAttribute('d', { history: 'M3 10a9 9 0 1 1 2.6 8.4 M3 5v5h5 M12 7v5l3 2', retry: 'M20 7v5h-5 M19.1 12a7.2 7.2 0 1 0-1.7 5.3', new: 'M13 4H4v16h16v-9 M10 14l1-5L19 1l4 4-8 8z', collapse: 'm9 5 7 7-7 7', send: 'M12 19V5 M5 12l7-7 7 7', settings: 'M9.5 3h5l.6 2.3 2 .9 2.2-.7 2.5 4.3-1.7 1.6v2.2l1.7 1.6-2.5 4.3-2.2-.7-2 .9-.6 2.3h-5l-.6-2.3-2-.9-2.2.7-2.5-4.3 1.7-1.6v-2.2L1.8 10l2.5-4.3 2.2.7 2-.9z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0', close: 'm6 6 12 12 M6 18 18 6' }[kind]);
+    if (kind === 'history' || kind === 'retry') { path.setAttribute('stroke-linecap', 'round'); path.setAttribute('stroke-linejoin', 'round'); }
     svg.append(path); button.append(svg); return button;
   },
   mount(plugin, state, { head, history, welcome }) {
@@ -236,6 +237,7 @@ var PaperChatConversations = {
       for (const page of turn.pageReferences || []) state.allowedPages.add(page);
       if (turn.paper?.pageCount) state.pageCount = Math.max(state.pageCount, turn.paper.pageCount);
     }
+    state.exportClose?.(false);
     state.messages = []; state.log.replaceChildren(); state.navigationSerial = (state.navigationSerial || 0) + 1;
     PaperChatReader.clearHighlight(state); plugin.removeSelection(state);
     for (const entry of conversation.messages || []) {

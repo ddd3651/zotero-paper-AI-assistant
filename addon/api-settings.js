@@ -26,12 +26,18 @@ var PaperChatAPISettings = {
     const apiKey = el('input'); apiKey.type = 'password';
     apiKey.autocomplete = 'off'; apiKey.setAttribute('spellcheck', 'false');
     const clearKey = el('input'); clearKey.type = 'checkbox';
+    const imageModel = el('input'); imageModel.type = 'text';
+    const imagePath = el('input'); imagePath.type = 'text'; imagePath.placeholder = '/images/generations';
+    const imageSettings = el('details');
+    imageSettings.append(el('summary', PaperChatText.t('imageSettings.title')),
+      label(PaperChatText.t('imageSettings.model'), imageModel),
+      label(PaperChatText.t('imageSettings.path'), imagePath));
     const save = el('button', PaperChatText.t("settings.saveAPI")); save.type = 'button';
     const status = el('div', ''); status.setAttribute('role', 'status');
     const help = el('div', PaperChatText.t("apiSettings.text02"));
     help.className = 'pc-settings-help';
     external.append(label(PaperChatText.t("settings.baseUrl"), baseUrl), label(PaperChatText.t("settings.externalModel"), model),
-      label(PaperChatText.t("settings.apiKey"), apiKey), label(PaperChatText.t("apiSettings.text03"), clearKey), save, status, help);
+      label(PaperChatText.t("settings.apiKey"), apiKey), label(PaperChatText.t("apiSettings.text03"), clearKey), imageSettings, save, status, help);
     settingsMenu.insertBefore(providerLabel, modelLabel);
     settingsMenu.insertBefore(external, modelLabel);
     const webSearch = el('input'); webSearch.type = 'checkbox';
@@ -41,7 +47,7 @@ var PaperChatAPISettings = {
     const webHelp = el('div', ''); webHelp.className = 'pc-settings-help';
     const webGroup = el('div'); webGroup.append(webLabel, webHelp);
     settingsMenu.insertBefore(webGroup, modelLabel);
-    const view = { provider, external, baseUrl, model, apiKey, clearKey, save, status,
+    const view = { provider, external, baseUrl, model, apiKey, clearKey, imageModel, imagePath, save, status,
       webSearch, webHelp,
       modelLabel, effortLabel, dirty: new Set(), revisions: {}, pending: null,
       current: { provider: 'codex', external: {} }, busy: false };
@@ -51,13 +57,13 @@ var PaperChatAPISettings = {
       view.revisions[name] = (view.revisions[name] || 0) + 1;
       status.textContent = PaperChatText.t("common.unsaved");
     };
-    for (const [name, control] of Object.entries({ baseUrl, model, apiKey, clearKey })) {
+    for (const [name, control] of Object.entries({ baseUrl, model, apiKey, clearKey, imageModel, imagePath })) {
       control.addEventListener(name === 'clearKey' ? 'change' : 'input', () => {
         edit(name);
         if (name === 'clearKey') this.setBusy(state, view.busy);
       });
     }
-    for (const control of [provider, baseUrl, model, apiKey, clearKey]) {
+    for (const control of [provider, baseUrl, model, apiKey, clearKey, imageModel, imagePath]) {
       control.addEventListener('keydown', event => event.stopPropagation());
     }
     // Errors may contain credentials from a transport: never log or echo them here.
@@ -103,6 +109,7 @@ var PaperChatAPISettings = {
     save.addEventListener('click', () => {
       if (save.disabled) return;
       const values = { baseUrl: baseUrl.value, model: model.value };
+      for (const name of ['imageModel', 'imagePath']) if (view.dirty.has(name)) values[name] = view[name].value;
       if (clearKey.checked) values.apiKey = '';
       else if (apiKey.value) values.apiKey = apiKey.value;
       state.settingsPromise = submit({ provider: 'external', external: values });
@@ -135,12 +142,13 @@ var PaperChatAPISettings = {
     const external = current.external || {};
     // Deliberately pick public fields; never retain an apiKey from a response.
     view.current = { provider: current.provider === 'external' ? 'external' : 'codex', webSearch: current.webSearch === true,
-      external: { baseUrl: external.baseUrl || '', model: external.model || '', hasApiKey: !!external.hasApiKey } };
+      external: { baseUrl: external.baseUrl || '', model: external.model || '', hasApiKey: !!external.hasApiKey,
+        imageModel: external.imageModel || '', imagePath: external.imagePath || '' } };
     const pending = view.pending;
     const saved = pending?.accepted;
     if (saved) {
       if (pending.changes.external) {
-        for (const name of ['baseUrl', 'model', 'apiKey', 'clearKey']) {
+        for (const name of ['baseUrl', 'model', 'apiKey', 'clearKey', 'imageModel', 'imagePath']) {
           if (view.revisions[name] !== pending.revisions[name]) continue;
           view.dirty.delete(name);
           if (name === 'apiKey') view.apiKey.value = '';
@@ -150,7 +158,7 @@ var PaperChatAPISettings = {
       view.pending = null;
     }
     view.provider.value = view.current.provider;
-    for (const name of ['baseUrl', 'model']) {
+    for (const name of ['baseUrl', 'model', 'imageModel', 'imagePath']) {
       if (!view.dirty.has(name)) view[name].value = view.current.external[name];
     }
     view.apiKey.placeholder = view.current.external.hasApiKey ? PaperChatText.t("common.saved") : '';
@@ -164,7 +172,7 @@ var PaperChatAPISettings = {
     if (!view) return;
     view.busy = !!busy;
     const disabled = view.busy || !!state.settingsSaving || !state.settingsReady || !!view.pending;
-    for (const control of [view.provider, view.baseUrl, view.model, view.apiKey, view.clearKey, view.save]) {
+    for (const control of [view.provider, view.baseUrl, view.model, view.apiKey, view.clearKey, view.imageModel, view.imagePath, view.save]) {
       control.disabled = disabled || (control === view.apiKey && view.clearKey.checked);
     }
     view.webSearch.disabled = disabled || view.current.provider === 'external';

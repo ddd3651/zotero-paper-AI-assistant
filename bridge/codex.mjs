@@ -65,7 +65,7 @@ export class CodexClient extends EventEmitter {
       catch (error) { this.emit('diagnostic', error.message); }
     });
     await this.call('initialize', {
-      clientInfo: { name: 'zotero_paper_chat', title: 'Zotero Paper Chat', version: '0.7.0' },
+      clientInfo: { name: 'zotero_paper_chat', title: 'Zotero Paper Chat', version: '0.7.6' },
     });
     this.send({ method: 'initialized', params: {} });
     const { account } = await this.call('account/read', { refreshToken: false });
@@ -73,6 +73,7 @@ export class CodexClient extends EventEmitter {
       this.close();
       throw new Error(t("errors.codex.error02"));
     }
+    this.disconnected = false;
     this.account = { type: account.type, planType: account.planType };
     return this.account;
   }
@@ -205,6 +206,7 @@ export class CodexClient extends EventEmitter {
   }
 
   failAll(error) {
+    this.disconnected = true;
     for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(error); }
     for (const j of this.jobs.values()) { clearTimeout(j.timer); j.reject(error); }
     this.pending.clear(); this.jobs.clear();

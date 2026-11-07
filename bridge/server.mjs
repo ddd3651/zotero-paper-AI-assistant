@@ -58,8 +58,9 @@ export function createBridge({ config, codex, configFile, historyDir }) {
   async function ensureCodexReady() {
     await ready;
     // A transient discovery failure must not poison every later question until Zotero restarts.
-    if (startupError && /timed out|超时|连接|network|connection/i.test(startupError) && !codexConnecting) {
+    if (!codexConnecting && (codex.disconnected || (startupError && /timed out|超时|连接|network|connection/i.test(startupError)))) {
       codex.close(); startupError = null; codexConnecting = true;
+      for (const session of sessions.values()) { session.threadId = null; session.nativeTokens = 0; }
       ready = initializeCodex();
     }
     await ready;
@@ -395,11 +396,12 @@ export function createBridge({ config, codex, configFile, historyDir }) {
       const url = new URL(req.url, 'http://127.0.0.1');
       const path = url.pathname;
       if (req.method === 'GET' && path === '/status') {
+        const connectionError = startupError || (codex.disconnected && !codexConnecting ? t('errors.codex.error03') : null);
         return json(res, 200, {
-          codexError: startupError ? redactError({ message: startupError }, [config.external?.apiKey]) : null,
+          codexError: connectionError ? redactError({ message: connectionError }, [config.external?.apiKey]) : null,
           settingsAvailable: true, codexConnecting, current: settings,
-          ok: settings.provider === 'external' || (!codexConnecting && !startupError), account: codex.account, model: settings?.model, effort: settings?.effort, error: settings.provider === 'codex' ? redactError({ message: startupError || '' }, [config.external?.apiKey]) || null : null,
-          version: '0.7.0', apiVersion: 5, provider: settings.provider, billing: settings.provider === 'external' ? 'external' : 'chatgpt',
+          ok: settings.provider === 'external' || (!codexConnecting && !connectionError), account: codex.account, model: settings?.model, effort: settings?.effort, error: settings.provider === 'codex' && connectionError ? redactError({ message: connectionError }, [config.external?.apiKey]) : null,
+          version: '0.7.6', apiVersion: 5, provider: settings.provider, billing: settings.provider === 'external' ? 'external' : 'chatgpt',
         });
       }
       if (path === '/settings' && ['GET', 'POST'].includes(req.method)) {

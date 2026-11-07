@@ -28,7 +28,7 @@ function externalError(message) {
 export function normalizeExternal(value = {}, current = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw externalError(t("errors.external.error01"));
   const result = { baseUrl: '', model: '', apiKey: '', ...current };
-  for (const field of ['baseUrl', 'model', 'apiKey']) {
+  for (const field of ['baseUrl', 'model', 'apiKey', 'imageModel', 'imagePath']) {
     if (!Object.hasOwn(value, field)) continue;
     if (typeof value[field] !== 'string' || value[field].length > (field === 'apiKey' ? 8192 : 2048)) throw externalError(t("errors.external.error01"));
     result[field] = value[field].trim();
@@ -43,11 +43,19 @@ export function normalizeExternal(value = {}, current = {}) {
     result.baseUrl = url.href.replace(/\/+$/, '');
   }
   if (/[\r\n]/.test(result.apiKey)) throw externalError(t("errors.external.error04"));
-  return { baseUrl: result.baseUrl, model: result.model, apiKey: result.apiKey };
+  if (result.imagePath && (!/^\/[A-Za-z0-9_./-]+$/.test(result.imagePath) ||
+      result.imagePath.includes('//') || result.imagePath.split('/').some(part => part === '.' || part === '..'))) {
+    throw externalError(t("errors.external.error02"));
+  }
+  return { baseUrl: result.baseUrl, model: result.model, apiKey: result.apiKey,
+    ...(result.imageModel ? { imageModel: result.imageModel } : {}),
+    ...(result.imagePath ? { imagePath: result.imagePath } : {}) };
 }
 
 export function publicExternal(value = {}) {
-  return { baseUrl: value.baseUrl || '', model: value.model || '', hasApiKey: !!value.apiKey };
+  return { baseUrl: value.baseUrl || '', model: value.model || '', hasApiKey: !!value.apiKey,
+    ...(value.imageModel ? { imageModel: value.imageModel } : {}),
+    ...(value.imagePath ? { imagePath: value.imagePath } : {}) };
 }
 
 // Do not include upstream response bodies, URLs or raw transport errors in diagnostics.

@@ -26,9 +26,12 @@ codex.cmd login
 py -3 scripts/build.py
 ```
 
-打包完成后，在Zotero中打开 **工具 → 插件 → 齿轮菜单 → 从文件安装插件**，选择项目目录下的`dist/zotero-paper-chat-0.7.0.xpi`。打开PDF后会显示“AI论文助手”面板。
+打包完成后，在Zotero中打开 **工具 → 插件 → 齿轮菜单 → 从文件安装插件**，选择项目目录下的`dist/zotero-paper-chat-0.7.6.xpi`。打开PDF后会显示“AI论文助手”面板。
 
 插件会自动启动本地服务。启动失败时，双击项目目录中的“启动伴读服务.cmd”查看错误。Codex路径设置见[Windows安装与验证](docs/WINDOWS.md)。
+
+
+点击回答下方的导出图标选择格式：HTML在默认浏览器中打开，可通过浏览器保存；SVG、PNG直接显示在回答下方，点击图片可放大，也可以导出文件。可以直接提问“把本文方法画成流程图”，也可以导出已有回答。图表在本机绘制；外部API设置中的“生图接口”只保存模型和路径，目前不调用生图服务。
 
 ## macOS安装
 
@@ -42,7 +45,7 @@ cd zotero-paper-AI-assistant
 npm run build
 ```
 
-如果本机没有npm，可以直接运行`python3 scripts/build.py`。打包完成后，在Zotero中打开 **工具 → 插件 → 齿轮菜单 → 从文件安装插件**，选择`dist/zotero-paper-chat-0.7.0.xpi`，再打开PDF使用。
+如果本机没有npm，可以直接运行`python3 scripts/build.py`。打包完成后，在Zotero中打开 **工具 → 插件 → 齿轮菜单 → 从文件安装插件**，选择`dist/zotero-paper-chat-0.7.6.xpi`，再打开PDF使用。
 
 安装包会记录本机的Node.js和服务路径，请保留整个项目文件夹。移动文件夹、换电脑或分享给别人时，需要在目标电脑上重新打包、安装。
 

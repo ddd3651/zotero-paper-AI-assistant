@@ -10,6 +10,8 @@ function fixture() {
   const scope = createUIContext({ PaperChatMarkdown: { render: (_, text) => text }, Zotero: { Utilities: { Internal: {
     copyTextToClipboard(text) { clipboard = text; },
   } } } });
+  vm.runInContext(readFileSync(new URL('../addon/conversations.js', import.meta.url), 'utf8'), scope);
+  vm.runInContext(readFileSync(new URL('../addon/export.js', import.meta.url), 'utf8'), scope);
   vm.runInContext(readFileSync(new URL('../addon/interaction.js', import.meta.url), 'utf8'), scope);
   const api = scope.PaperChatInteraction;
   const panel = { contains: node => node?.inside, ownerDocument: { defaultView: { getSelection: () => selection } } };
@@ -30,7 +32,7 @@ test('copy uses selected input range, limits DOM selections to the panel and exp
   f.api.copy(f.state, ''); assert.equal(f.clipboard(), '已选原文');
 });
 
-test('one compact icon copies the entire assistant answer from its bottom footer and keeps icon feedback', () => {
+test('compact copy icon copies the entire assistant answer from its bottom footer and keeps icon feedback', () => {
   const f = fixture(), timers = [];
   const doc = { defaultView: { setTimeout(fn) { timers.push(fn); return timers.length; }, clearTimeout() {} } };
   class Element {
@@ -49,13 +51,28 @@ test('one compact icon copies the entire assistant answer from its bottom footer
   wrap.append(label, body); f.api.message(plugin, f.state, body, wrap);
   assert.equal(label.children.length, 0); assert.equal(wrap.children.length, 3);
   const footer = wrap.children[2], button = footer.children[0];
-  assert.equal(footer.className, 'pc-message-actions'); assert.equal(footer.children.length, 1);
+  assert.equal(footer.className, 'pc-message-actions'); assert.equal(footer.children.length, 2);
+  assert.equal(footer.children[1].attrs['aria-label'], '预览与导出');
   assert.equal(button.children[0].tag, 'svg'); assert.equal(button.textContent, '');
   button.events.click(); assert.equal(f.clipboard(), body._paperChatEntry.text);
   assert.equal(button.attrs['aria-label'], '已复制'); assert.equal(button.textContent, '');
   timers[0](); assert.equal(button.attrs['aria-label'], '复制完整回答'); assert.equal(button.children[0].tag, 'svg');
   const userWrap = new Element('article'); body._paperChatEntry.role = 'user';
-  f.api.message(plugin, f.state, body, userWrap); assert.equal(userWrap.children.length, 0);
+  f.api.message(plugin, f.state, body, userWrap); assert.equal(userWrap.children.length, 1);
+  assert.equal(userWrap.children[0].children[0].attrs['aria-label'], '重新发送');
+  let resent;
+  plugin.ask = (_, entry) => { resent = entry; };
+  f.state.historyLoaded = true;
+  body._paperChatEntry.selection = '原选区';
+  f.state.input = { value: '未发送草稿' };
+  userWrap.children[0].children[0].events.click();
+  assert.equal(resent.text, body._paperChatEntry.text);
+  assert.equal(resent.selection, '原选区');
+  assert.equal(f.state.input.value, '未发送草稿');
+  resent = null; f.state.busy = true;
+  userWrap.children[0].children[0].events.click();
+  assert.equal(resent, null);
+
 });
 
 test('elapsed time and summary distinguish waiting, generation, completion and unavailable summaries', () => {
